@@ -271,8 +271,31 @@ router.get("/search", async (req, res) => {
 });
 
 // Full bilingual analysis for any ticker (EGX or other).
+// Resolve loose user input to canonical EGX symbols: "cib" → COMI.CA,
+// "egx30" → ^CASE30, "comi" → COMI.CA. Non-EGX input passes through unchanged.
+function resolveTicker(input) {
+  const t = String(input ?? "").trim().toUpperCase();
+  if (!t) return t;
+  const symbols = [...EGX_STOCKS.map((s) => s.symbol), ...EGX_INDICES.map((i) => i.symbol)];
+  if (symbols.some((s) => s.toUpperCase() === t)) return t;
+  for (const idx of EGX_INDICES) {
+    if ((idx.aliases ?? []).some((a) => String(a).toUpperCase() === t)) return idx.symbol;
+  }
+  if (!t.includes(".")) {
+    if (symbols.some((s) => s.replace(/\.CA$/i, "").toUpperCase() === t)) return `${t}.CA`;
+    // Acronym in the company name, e.g. "Commercial International Bank (CIB)"
+    for (const s of EGX_STOCKS) {
+      const m = s.en.match(/\(([^)]+)\)/);
+      if (m && m[1].trim().toUpperCase() === t) return s.symbol;
+    }
+  }
+  return t;
+}
+
 router.post("/analyze", async (req, res) => {
-  const ticker = String(req.body?.ticker ?? "").trim().toUpperCase();
+  const raw = String(req.body?.ticker ?? "").trim();
+  // Dropdown selections send exact:true and are used verbatim.
+  const ticker = req.body?.exact ? raw.toUpperCase() : resolveTicker(raw);
   if (!ticker) return res.status(400).json({ error: "ticker required" });
   try {
     const result = await analyzeTicker(ticker);

@@ -87,12 +87,12 @@ export default function Analyze() {
     return () => clearTimeout(tm);
   }, [q]);
 
-  async function runAnalysis(symbol: string) {
+  async function runAnalysis(symbol: string, exact = false) {
     setLoading(true);
     setErr(null);
     setAnalysis(null);
     try {
-      const a = await api.analyze(symbol);
+      const a = await api.analyze(symbol, exact);
       setAnalysis(a);
     } catch (e) {
       setErr((e as Error & { status?: number }).status === 404 ? t("analyze_notfound") : t("analyze_error"));
@@ -105,13 +105,15 @@ export default function Analyze() {
     e.preventDefault();
     if (!q.trim()) return;
     setShowDrop(false);
+    // Typed input gets alias-resolved server-side ("cib" → COMI.CA).
     runAnalysis(q.trim().toUpperCase());
   };
 
   const select = (sym: string) => {
     setQ(sym);
     setShowDrop(false);
-    runAnalysis(sym);
+    // Dropdown picks are exact symbols — never alias-resolved.
+    runAnalysis(sym, true);
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {

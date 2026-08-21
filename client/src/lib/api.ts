@@ -319,6 +319,6 @@ export const api = {
     get<InvestmentPlan>(`/api/plan?amount=${amount}&horizon=${horizon}&risk=${risk}`),
   funds: () => get<FundsData>("/api/funds"),
   search: (q: string) => get<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`),
-  analyze: (ticker: string) => post<Analysis>("/api/analyze", { ticker }),
+  analyze: (ticker: string, exact = false) => post<Analysis>("/api/analyze", { ticker, exact }),
   news: () => get<{ news: NewsItem[]; updatedAt: string }>("/api/news"),
 };

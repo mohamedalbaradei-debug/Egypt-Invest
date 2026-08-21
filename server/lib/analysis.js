@@ -269,9 +269,13 @@ export async function analyzeTicker(symbol) {
   const lows = quotes.map((q) => q.low ?? q.close);
   const volumes = quotes.map((q) => q.volume ?? 0);
 
-  const q = quoteRes.status === "fulfilled" ? quoteRes.value[0] ?? null : null;
+  const qRaw = quoteRes.status === "fulfilled" ? quoteRes.value[0] ?? null : null;
+  // Discard stale cached quotes (Yahoo currently serves old snapshots for
+  // some EGX names) — fall back to the fresh chart-derived price instead.
+  const qAge = qRaw?.regularMarketTime ? Date.now() - new Date(qRaw.regularMarketTime).getTime() : NaN;
+  const q = Number.isFinite(qAge) && qAge <= 14 * 86400000 ? qRaw : null;
 
-  const currentPrice = q?.regularMarketPrice ?? closes[closes.length - 1] ?? null;
+  const currentPrice = closes[closes.length - 1] ?? q?.regularMarketPrice ?? null;
   const companyName = q?.longName ?? q?.shortName ?? symbol;
 
   const isoDay = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : typeof d === "string" ? d.slice(0, 10) : "");

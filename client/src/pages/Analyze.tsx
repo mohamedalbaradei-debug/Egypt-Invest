@@ -76,7 +76,7 @@ export default function Analyze() {
     const tm = setTimeout(async () => {
       try {
         const r = await api.search(q.trim());
-        setResults(r.results);
+        setResults(r.results ?? []);
         setShowDrop(true);
       } catch {
         setResults([]);
@@ -163,6 +163,12 @@ export default function Analyze() {
           </button>
           {searching && <Loader2 className="absolute end-28 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-500" />}
         </div>
+
+        {showDrop && !searching && q.trim().length >= 2 && results.length === 0 && (
+          <div className="absolute z-20 top-[calc(100%+6px)] start-0 end-0 bg-base-800 border border-base-600 rounded-xl shadow-2xl px-4 py-3 text-xs text-slate-400">
+            {lang === "ar" ? "لا توجد نتائج — جرّب الرمز مثل COMI.CA أو اسم الشركة" : "No matches — try a ticker like COMI.CA or the company name"}
+          </div>
+        )}
 
         {showDrop && results.length > 0 && (
           <div className="absolute z-20 top-[calc(100%+6px)] start-0 end-0 bg-base-800 border border-base-600 rounded-xl shadow-2xl overflow-hidden">

@@ -47,6 +47,16 @@ async function quote(symbol) {
 }
 export { quote as quoteSmart };
 
+// Yahoo is currently serving stale cached snapshots for some symbols (e.g.
+// EGX names quoting 2024 prices). Discard quotes older than maxAgeDays so we
+// fall back to fresh chart data instead of showing wrong numbers.
+function freshQuote(q, maxAgeDays = 14) {
+  if (!q) return null;
+  const t = q.regularMarketTime ? new Date(q.regularMarketTime).getTime() : NaN;
+  if (!Number.isFinite(t) || Date.now() - t > maxAgeDays * 86400000) return null;
+  return q;
+}
+
 // Daily closes (oldest→newest) for the last `days`. Returns [] on failure.
 async function closes(symbol, days = 400) {
   return cached(`c:${symbol}:${days}`, TTL, async () => {
@@ -154,13 +164,15 @@ export function closesToOhlc(series) {
 
 // ── Gold ────────────────────────────────────────────────────────────────────
 export async function getGoldData() {
-  const [goldQ, fxQ, goldSeries, fxSeries, goldOhlc] = await Promise.all([
+  const [goldQr, fxQr, goldSeries, fxSeries, goldOhlc] = await Promise.all([
     quote(GOLD_SYMBOL),
     quote(FX_SYMBOL),
     closes(GOLD_SYMBOL, 400),
     closes(FX_SYMBOL, 400),
     ohlc(GOLD_SYMBOL, 365),
   ]);
+  const goldQ = freshQuote(goldQr);
+  const fxQ = freshQuote(fxQr);
 
   // Spot fallback: Yahoo's quote endpoint can return empty on some datacenter
   // IPs while the chart endpoint still works — derive spot from last close.
@@ -196,7 +208,8 @@ export async function getGoldData() {
 
 // ── FX: USD/EGP ─────────────────────────────────────────────────────────────
 export async function getFxData() {
-  const [fxQ, fxSeries, fxOhlc] = await Promise.all([quote(FX_SYMBOL), closes(FX_SYMBOL, 400), ohlc(FX_SYMBOL, 365)]);
+  const [fxQr, fxSeries, fxOhlc] = await Promise.all([quote(FX_SYMBOL), closes(FX_SYMBOL, 400), ohlc(FX_SYMBOL, 365)]);
+  const fxQ = freshQuote(fxQr);
   const rate = fxQ?.regularMarketPrice ?? (fxSeries.length ? fxSeries[fxSeries.length - 1].close : null);
   return {
     symbol: FX_SYMBOL,
@@ -215,18 +228,15 @@ export async function getFxData() {
 
 // ── EGX30 index (live quote + basket-proxy history) ─────────────────────────
 export async function getIndexData() {
-  const [q, basket] = await Promise.all([quote(EGX30_INDEX.symbol), getBasketHistory(365)]);
-  const lastBasket = basket.length ? basket[basket.length - 1].close : null;
-  const prevBasket = basket.length > 1 ? basket[basket.length - 2].close : null;
+  const [qRaw, basket] = await Promise.all([quote(EGX30_INDEX.symbol), getBasketHistory(365)]);
+  const q = freshQuote(qRaw);
   return {
     symbol: EGX30_INDEX.symbol,
-    level: q?.regularMarketPrice ?? lastBasket,
+    // Only a FRESH quote may supply the index level — the proxy basket is
+    // base-1000 scale and must never stand in for the real level.
+    level: q?.regularMarketPrice ?? null,
     changePct:
-      q?.regularMarketChangePercent != null
-        ? q.regularMarketChangePercent
-        : lastBasket != null && prevBasket
-          ? ((lastBasket - prevBasket) / prevBasket) * 100
-          : null,
+      q?.regularMarketChangePercent != null ? q.regularMarketChangePercent : null,
     series: basket.map((p) => ({ date: p.date, value: p.close })),
     ohlc: closesToOhlc(basket),
     proxy: true,
@@ -238,7 +248,8 @@ export async function getIndexData() {
 export async function getEgxMarket() {
   const stocks = await Promise.all(
     EGX_STOCKS.map(async (s) => {
-      const [q, series, ohlcData] = await Promise.all([quote(s.symbol), closes(s.symbol, 400), ohlc(s.symbol, 365)]);
+      const [qRaw, series, ohlcData] = await Promise.all([quote(s.symbol), closes(s.symbol, 400), ohlc(s.symbol, 365)]);
+      const q = freshQuote(qRaw);
       const last = series.length ? series[series.length - 1].close : null;
       return {
         symbol: s.symbol,
@@ -260,13 +271,15 @@ export async function getEgxMarket() {
 
   const etfs = await Promise.all(
     EGX_ETFS.map(async (e) => {
-      const [q, series, ohlcData] = await Promise.all([quote(e.symbol), closes(e.symbol, 400), ohlc(e.symbol, 365)]);
+      const [qRaw, series, ohlcData] = await Promise.all([quote(e.symbol), closes(e.symbol, 400), ohlc(e.symbol, 365)]);
+      const q = freshQuote(qRaw);
+      const last = series.length ? series[series.length - 1].close : null;
       return {
         symbol: e.symbol,
         en: e.en,
         ar: e.ar,
         name: cleanName(q?.longName) ?? e.en,
-        price: q?.regularMarketPrice ?? null,
+        price: q?.regularMarketPrice ?? last,
         currency: q?.currency ?? e.currencyHint ?? "USD",
         changePct: q?.regularMarketChangePercent != null ? q.regularMarketChangePercent : pctChange(series, 1),
         series: series.slice(-260).map((p) => ({ date: p.date, value: p.close })),
@@ -280,9 +293,11 @@ export async function getEgxMarket() {
 
   const indices = await Promise.all(
     EGX_INDICES.map(async (idx) => {
-      const q = await quote(idx.symbol);
+      const q = freshQuote(await quote(idx.symbol));
       // Yahoo has no daily history for any EGX index — attach the basket
       // proxy so charts and analysis still work (flagged clearly).
+      // NOTE: level is only shown from a FRESH quote; the proxy basket is a
+      // different scale (base 1000) so it must never stand in for the level.
       const useProxy = basket.length > 30;
       return {
         symbol: idx.symbol,

@@ -25,24 +25,43 @@ export function cleanName(name) {
 
 async function quote(symbol) {
   return cached(`q:${symbol}`, TTL, async () => {
+    let q = null;
     try {
-      const [q] = await yahooFinance.quote([symbol]);
-      if (q && q.regularMarketPrice != null) return q;
-      // Yahoo's quote endpoint can return empty on datacenter IPs while the
-      // chart endpoint still works — synthesize spot fields from chart closes.
-      const series = await closes(symbol, 10);
-      if (!series.length) return q ?? null;
-      const last = series[series.length - 1].close;
-      const prev = series.length > 1 ? series[series.length - 2].close : null;
-      return {
-        ...(q ?? {}),
-        symbol,
-        regularMarketPrice: last,
-        regularMarketChangePercent: prev ? ((last - prev) / prev) * 100 : undefined,
-      };
+      const [raw] = await yahooFinance.quote([symbol]);
+      q = raw ?? null;
     } catch {
-      return null;
+      q = null;
     }
+    const ageOk =
+      q?.regularMarketTime && Date.now() - new Date(q.regularMarketTime).getTime() <= 14 * 86400000;
+    if (q && q.regularMarketPrice != null && ageOk) return q;
+
+    // Yahoo's quote endpoint often fails or serves stale snapshots from
+    // datacenter IPs while the chart endpoint still works. Rebuild spot
+    // fields from chart data: prefer the fresh close series, then meta.
+    let series = [];
+    let metaPrice = null;
+    try {
+      const c = await chartSafe(symbol, { period1: new Date(Date.now() - 10 * 86400000), interval: "1d" });
+      series = (c?.quotes ?? []).filter((x) => x.close != null);
+      metaPrice = c?.meta?.regularMarketPrice ?? null;
+    } catch {
+      /* ignore */
+    }
+    const last = series.length ? series[series.length - 1].close : null;
+    const prev = series.length > 1 ? series[series.length - 2].close : null;
+    const price = last ?? metaPrice;
+    if (price == null) return q;
+    return {
+      ...(q ?? {}),
+      symbol,
+      regularMarketPrice: price,
+      regularMarketChangePercent: prev ? ((price - prev) / prev) * 100 : undefined,
+      // Mark as reconstructed so downstream freshness gates don't discard it,
+      // but keep the original snapshot date for fundamentals labeling.
+      regularMarketTime: new Date().toISOString(),
+      staleSnapshotTime: q?.regularMarketTime ?? null,
+    };
   });
 }
 export { quote as quoteSmart };

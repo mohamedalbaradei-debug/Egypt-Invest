@@ -279,9 +279,10 @@ export async function analyzeTicker(symbol) {
   const qAge = qRaw?.regularMarketTime ? Date.now() - new Date(qRaw.regularMarketTime).getTime() : NaN;
   const q = Number.isFinite(qAge) && qAge <= 14 * 86400000 ? qRaw : null;
   const staleQ = q ? null : qRaw;
-  const fundamentalsAsOf = (q ?? staleQ)?.regularMarketTime
-    ? new Date((q ?? staleQ).regularMarketTime).toISOString().slice(0, 10)
-    : null;
+  // Snapshot date for fundamentals labeling: either an explicitly stale quote
+  // or a reconstructed one that preserved the original snapshot time.
+  const snapshotSource = (q ?? staleQ)?.staleSnapshotTime ?? (q ?? staleQ)?.regularMarketTime ?? null;
+  const fundamentalsAsOf = snapshotSource ? new Date(snapshotSource).toISOString().slice(0, 10) : null;
 
   const currentPrice = closes[closes.length - 1] ?? q?.regularMarketPrice ?? null;
   // Fundamentals source: fresh quote preferred; stale snapshot as labeled fallback.

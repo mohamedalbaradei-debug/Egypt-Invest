@@ -1,5 +1,6 @@
 import { yahooFinance, chartSafe } from "./yahoo.js";
 import { getInflation, getFxData, getBasketHistory, closesToOhlc, quoteSmart } from "./market.js";
+import { getTVFundamentals } from "./tv.js";
 import { CBE_POLICY } from "../data/econ.js";
 import { EGX_INDICES } from "../data/egx.js";
 
@@ -245,12 +246,13 @@ export async function analyzeTicker(symbol) {
 
   const isIndex = EGX_INDICES.some((i) => i.symbol === symbol);
 
-  const [chartRes, quoteRes, inflationRes, fxRes, basketRes] = await Promise.allSettled([
+  const [chartRes, quoteRes, inflationRes, fxRes, basketRes, tvRes] = await Promise.allSettled([
     isIndex ? Promise.resolve(null) : chartSafe(symbol, { period1: since, interval: "1d" }),
     quoteSmart(symbol),
     getInflation(),
     getFxData(),
     isIndex ? getBasketHistory(365) : Promise.resolve(null),
+    isIndex ? Promise.resolve(null) : getTVFundamentals(symbol),
   ]);
 
   // ── Build the working series (real OHLC for stocks, basket proxy for indices)
@@ -285,8 +287,10 @@ export async function analyzeTicker(symbol) {
   const fundamentalsAsOf = snapshotSource ? new Date(snapshotSource).toISOString().slice(0, 10) : null;
 
   const currentPrice = closes[closes.length - 1] ?? q?.regularMarketPrice ?? null;
-  // Fundamentals source: fresh quote preferred; stale snapshot as labeled fallback.
+  // Fundamentals source: TradingView (fresh, works from any IP) first; Yahoo
+  // quote fills gaps. Stale Yahoo snapshots are allowed but labeled.
   const fq = q ?? staleQ;
+  const tv = tvRes.status === "fulfilled" ? tvRes.value : null;
   const companyName = q?.longName ?? q?.shortName ?? symbol;
 
   const isoDay = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : typeof d === "string" ? d.slice(0, 10) : "");
@@ -318,16 +322,29 @@ export async function analyzeTicker(symbol) {
     ? volumes.filter((v) => v > 0).reduce((s, v, _, a) => s + v / a.length, 0)
     : null;
 
-  // ── Fundamentals (indices have none; stale-but-labeled quote allowed) ────
-  const pe = isIndex ? null : fq?.trailingPE ?? null;
-  const eps = isIndex ? null : fq?.epsTrailingTwelveMonths ?? null;
-  const divRaw = isIndex ? null : fq?.dividendYield ?? null;
+  // ── Fundamentals (indices have none) ─────────────────────────────────────
+  // TradingView first (fresh TTM, IP-tolerant); Yahoo quote fills any gaps.
+  const pick = (tvVal, yhVal) => (tvVal != null ? tvVal : yhVal ?? null);
+  const pe = isIndex ? null : pick(tv?.pe, fq?.trailingPE);
+  const eps = isIndex ? null : pick(tv?.eps, fq?.epsTrailingTwelveMonths);
+  const divRaw = isIndex ? null : pick(tv?.dividendYield, fq?.dividendYield ?? null);
   // yahoo-finance2 v4 returns dividendYield already in percent for most feeds.
   const divYield = divRaw != null ? (Math.abs(divRaw) <= 1 ? divRaw * 100 : divRaw) : null;
-  const marketCap = isIndex ? null : fq?.marketCap ?? null;
-  const pb = isIndex ? null : fq?.priceToBook ?? null;
+  const marketCap = isIndex ? null : pick(tv?.marketCap, fq?.marketCap);
+  const pb = isIndex ? null : pick(tv?.priceToBook, fq?.priceToBook);
   const target = isIndex ? null : fq?.targetMeanPrice ?? null;
   const targetUpside = target != null && currentPrice ? ((target - currentPrice) / currentPrice) * 100 : null;
+  // Deep ratios — only TradingView publishes these for EGX names.
+  const deepRatios = isIndex
+    ? null
+    : {
+        roe: tv?.roe ?? null,
+        roa: tv?.roa ?? null,
+        debtToEquity: tv?.debtToEquity ?? null,
+        currentRatio: tv?.currentRatio ?? null,
+        revenueGrowth: tv?.revenueGrowth ?? null,
+        profitMargin: tv?.profitMargin ?? null,
+      };
 
   // ── Scores ───────────────────────────────────────────────────────────────
   const { tech, techNotes } = extractTechNotes(
@@ -382,7 +399,14 @@ export async function analyzeTicker(symbol) {
     changePct: q?.regularMarketChangePercent != null ? q.regularMarketChangePercent : null,
     // Date of the snapshot fundamentals came from — shown in the UI when the
     // quote is stale so users know how old these figures are.
-    fundamentalsAsOf: pe != null || eps != null || marketCap != null || pb != null ? fundamentalsAsOf : null,
+    // Label only when the figures actually came from a stale Yahoo snapshot
+    // (TradingView data is fresh and needs no label).
+    fundamentalsAsOf:
+      tv && (tv.pe != null || tv.eps != null || tv.marketCap != null)
+        ? null
+        : pe != null || eps != null || marketCap != null || pb != null
+          ? fundamentalsAsOf
+          : null,
     marketCap,
     pe,
     eps,
@@ -409,18 +433,31 @@ export async function analyzeTicker(symbol) {
       volumeAvg: volumeAvg ?? null,
     },
     fundamental: {
-      roe: null,
-      roa: null,
-      debtToEquity: null,
-      currentRatio: null,
-      revenueGrowth: null,
+      roe: deepRatios?.roe ?? null,
+      roa: deepRatios?.roa ?? null,
+      debtToEquity: deepRatios?.debtToEquity ?? null,
+      currentRatio: deepRatios?.currentRatio ?? null,
+      revenueGrowth: deepRatios?.revenueGrowth ?? null,
       earningsGrowth: null,
-      profitMargin: null,
+      profitMargin: deepRatios?.profitMargin ?? null,
       freeCashFlow: null,
-      note: bi(
-        "Deep ratios (ROE, ROA, debt…) are not published by free data sources for EGX names.",
-        "النسب المتعمقة (العائد على حقوق الملكية وغيرها) غير متاحة من مصادر البيانات المجانية لأسهم البورصة المصرية."
-      ),
+      note:
+        isIndex || !deepRatios
+          ? bi(
+              "Deep ratios (ROE, ROA, debt…) are not published by free data sources for this symbol.",
+              "النسب المتعمقة (العائد على حقوق الملكية وغيرها) غير متاحة من مصادر البيانات المجانية لهذا الرمز."
+            )
+          : ["roe", "roa", "debtToEquity", "currentRatio", "revenueGrowth", "profitMargin"].every(
+                (k) => deepRatios[k] == null
+              )
+            ? bi(
+                "Deep ratios (ROE, ROA, debt…) are not published by free data sources for this symbol.",
+                "النسب المتعمقة (العائد على حقوق الملكية وغيرها) غير متاحة من مصادر البيانات المجانية لهذا الرمز."
+              )
+            : bi(
+                "Deep ratios via TradingView (TTM). Some fields may be unavailable for certain names.",
+                "النسب المتعمقة من TradingView (آخر ١٢ شهرًا). قد لا تتوفر بعض الحقول لبعض الشركات."
+              ),
     },
     macro: {
       inflationPct,

@@ -149,8 +149,11 @@ export async function getGoldData() {
     ohlc(GOLD_SYMBOL, 365),
   ]);
 
-  const usdPerOz = goldQ?.regularMarketPrice ?? null;
-  const usdEgp = fxQ?.regularMarketPrice ?? null;
+  // Spot fallback: Yahoo's quote endpoint can return empty on some datacenter
+  // IPs while the chart endpoint still works — derive spot from last close.
+  const usdPerOz = goldQ?.regularMarketPrice ?? (goldSeries.length ? goldSeries[goldSeries.length - 1].close : null);
+  const usdEgpLive = fxQ?.regularMarketPrice ?? null;
+  const usdEgp = usdEgpLive ?? (fxSeries.length ? fxSeries[fxSeries.length - 1].close : null);
   const fxRate = usdEgp ?? 50; // fallback if FX quote fails
 
   const egpPerOz = usdPerOz != null ? usdPerOz * fxRate : null;
@@ -181,7 +184,7 @@ export async function getGoldData() {
 // ── FX: USD/EGP ─────────────────────────────────────────────────────────────
 export async function getFxData() {
   const [fxQ, fxSeries, fxOhlc] = await Promise.all([quote(FX_SYMBOL), closes(FX_SYMBOL, 400), ohlc(FX_SYMBOL, 365)]);
-  const rate = fxQ?.regularMarketPrice ?? null;
+  const rate = fxQ?.regularMarketPrice ?? (fxSeries.length ? fxSeries[fxSeries.length - 1].close : null);
   return {
     symbol: FX_SYMBOL,
     usdEgp: rate,
@@ -200,10 +203,17 @@ export async function getFxData() {
 // ── EGX30 index (live quote + basket-proxy history) ─────────────────────────
 export async function getIndexData() {
   const [q, basket] = await Promise.all([quote(EGX30_INDEX.symbol), getBasketHistory(365)]);
+  const lastBasket = basket.length ? basket[basket.length - 1].close : null;
+  const prevBasket = basket.length > 1 ? basket[basket.length - 2].close : null;
   return {
     symbol: EGX30_INDEX.symbol,
-    level: q?.regularMarketPrice ?? null,
-    changePct: q?.regularMarketChangePercent != null ? q.regularMarketChangePercent : null,
+    level: q?.regularMarketPrice ?? lastBasket,
+    changePct:
+      q?.regularMarketChangePercent != null
+        ? q.regularMarketChangePercent
+        : lastBasket != null && prevBasket
+          ? ((lastBasket - prevBasket) / prevBasket) * 100
+          : null,
     series: basket.map((p) => ({ date: p.date, value: p.close })),
     ohlc: closesToOhlc(basket),
     proxy: true,

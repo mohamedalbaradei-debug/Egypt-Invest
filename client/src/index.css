@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scrollbar-color: #1f2c3f #0b0f16;
+}
+
+body {
+  @apply bg-base text-slate-200 antialiased;
+  background-image:
+    radial-gradient(1200px 600px at 85% -10%, rgba(212, 175, 55, 0.06), transparent 60%),
+    radial-gradient(900px 500px at -10% 0%, rgba(14, 165, 233, 0.05), transparent 60%);
+  background-attachment: fixed;
+}
+
+[dir="rtl"] body {
+  font-family: "IBM Plex Sans Arabic", "Inter", system-ui, sans-serif;
+}
+
+.card {
+  @apply bg-base-800 border border-base-600 rounded-xl;
+}
+
+.card-hover {
+  @apply transition-colors hover:border-gold-500/40;
+}
+
+.label {
+  @apply text-[10px] font-mono text-slate-400 uppercase tracking-widest;
+}
+
+.mono {
+  font-family: "JetBrains Mono", "IBM Plex Sans Arabic", monospace;
+}
+
+[dir="rtl"] .mono {
+  font-family: "IBM Plex Sans Arabic", "JetBrains Mono", monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2c3f;
+  border-radius: 8px;
+}

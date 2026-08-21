@@ -1,0 +1,20 @@
+{
+  "name": "egypt-invest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Egyptian markets twin app — gold, EGX, USD/EGP, fixed income & money market funds. Bilingual AR/EN.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server/index.js",
+    "start": "node server/index.js",
+    "build:client": "npm --prefix client run build",
+    "postinstall": "npm --prefix client install"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "yahoo-finance2": "^4.0.2"
+  }
+}

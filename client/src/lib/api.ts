@@ -226,6 +226,7 @@ export interface Analysis {
     freeCashFlow: number | null;
     note?: Bi | null;
   };
+  fundamentalsAsOf?: string | null;
   macro: {
     inflationPct: number | null;
     policyRate: number | null;

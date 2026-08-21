@@ -371,6 +371,11 @@ export default function Analyze() {
                     <Fact label={t("analyze_mktcap")} value={a.marketCap != null ? `${fmtNum(a.marketCap / 1e9, 1)}B` : "—"} />
                     <Fact label={lang === "ar" ? "السعر المستهدف" : "Target"} value={a.targetPrice != null ? fmtNum(a.targetPrice, 2) : "—"} />
                   </div>
+                  {a.fundamentalsAsOf && (
+                    <p className="text-[10px] text-amber-500/80 font-mono mt-3">
+                      ⏳ {lang === "ar" ? "بيانات الأساسيات من مخزن ياهو المؤقت بتاريخ" : "Fundamentals snapshot dated"} {a.fundamentalsAsOf} {lang === "ar" ? "(مصدر ياهو يقدّم بيانات قديمة مؤقتًا)" : "(Yahoo's cache is currently serving older data)"}
+                    </p>
+                  )}
                   {a.fundamental?.note && (
                     <p className="text-[10px] text-slate-500 font-mono mt-3 leading-relaxed">{pick(a.fundamental.note, lang)}</p>
                   )}

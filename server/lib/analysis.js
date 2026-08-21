@@ -269,13 +269,23 @@ export async function analyzeTicker(symbol) {
   const lows = quotes.map((q) => q.low ?? q.close);
   const volumes = quotes.map((q) => q.volume ?? 0);
 
-  const qRaw = quoteRes.status === "fulfilled" ? quoteRes.value[0] ?? null : null;
-  // Discard stale cached quotes (Yahoo currently serves old snapshots for
-  // some EGX names) — fall back to the fresh chart-derived price instead.
+  const _qv = quoteRes.status === "fulfilled" ? quoteRes.value : null;
+  // quoteSmart resolves to a single quote object (the raw SDK returns an array)
+  const qRaw = Array.isArray(_qv) ? _qv[0] ?? null : _qv;
+  // Yahoo currently serves stale cached snapshots for some EGX names. Prices
+  // must come from the fresh chart, but fundamentals (P/E, EPS, market cap…)
+  // only exist in the quote — so if the quote is stale we still use its
+  // fundamentals and surface the as-of date in the UI instead of hiding them.
   const qAge = qRaw?.regularMarketTime ? Date.now() - new Date(qRaw.regularMarketTime).getTime() : NaN;
   const q = Number.isFinite(qAge) && qAge <= 14 * 86400000 ? qRaw : null;
+  const staleQ = q ? null : qRaw;
+  const fundamentalsAsOf = (q ?? staleQ)?.regularMarketTime
+    ? new Date((q ?? staleQ).regularMarketTime).toISOString().slice(0, 10)
+    : null;
 
   const currentPrice = closes[closes.length - 1] ?? q?.regularMarketPrice ?? null;
+  // Fundamentals source: fresh quote preferred; stale snapshot as labeled fallback.
+  const fq = q ?? staleQ;
   const companyName = q?.longName ?? q?.shortName ?? symbol;
 
   const isoDay = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : typeof d === "string" ? d.slice(0, 10) : "");
@@ -307,15 +317,15 @@ export async function analyzeTicker(symbol) {
     ? volumes.filter((v) => v > 0).reduce((s, v, _, a) => s + v / a.length, 0)
     : null;
 
-  // ── Fundamentals (indices have none) ─────────────────────────────────────
-  const pe = isIndex ? null : q?.trailingPE ?? null;
-  const eps = isIndex ? null : q?.epsTrailingTwelveMonths ?? null;
-  const divRaw = isIndex ? null : q?.dividendYield ?? null;
+  // ── Fundamentals (indices have none; stale-but-labeled quote allowed) ────
+  const pe = isIndex ? null : fq?.trailingPE ?? null;
+  const eps = isIndex ? null : fq?.epsTrailingTwelveMonths ?? null;
+  const divRaw = isIndex ? null : fq?.dividendYield ?? null;
   // yahoo-finance2 v4 returns dividendYield already in percent for most feeds.
   const divYield = divRaw != null ? (Math.abs(divRaw) <= 1 ? divRaw * 100 : divRaw) : null;
-  const marketCap = isIndex ? null : q?.marketCap ?? null;
-  const pb = isIndex ? null : q?.priceToBook ?? null;
-  const target = isIndex ? null : q?.targetMeanPrice ?? null;
+  const marketCap = isIndex ? null : fq?.marketCap ?? null;
+  const pb = isIndex ? null : fq?.priceToBook ?? null;
+  const target = isIndex ? null : fq?.targetMeanPrice ?? null;
   const targetUpside = target != null && currentPrice ? ((target - currentPrice) / currentPrice) * 100 : null;
 
   // ── Scores ───────────────────────────────────────────────────────────────
@@ -369,6 +379,9 @@ export async function analyzeTicker(symbol) {
     currency: q?.currency ?? "EGP",
     price: currentPrice,
     changePct: q?.regularMarketChangePercent != null ? q.regularMarketChangePercent : null,
+    // Date of the snapshot fundamentals came from — shown in the UI when the
+    // quote is stale so users know how old these figures are.
+    fundamentalsAsOf: pe != null || eps != null || marketCap != null || pb != null ? fundamentalsAsOf : null,
     marketCap,
     pe,
     eps,

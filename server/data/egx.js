@@ -21,10 +21,10 @@ export const EGX_STOCKS = [
 ];
 
 // Egypt-exposure funds. The EGX itself lists almost no ETFs — local investors
-// use mutual funds (see Funds tab). Internationally, VanEck's EGPT (NYSE) is
-// the main tradable Egypt fund; WIEGY tracks the FTSE Egypt index.
+// use mutual funds (see Funds tab). WIEGY tracks the FTSE Egypt index.
+// NOTE: VanEck's EGPT (NYSE) was delisted — Yahoo has zero trading data since
+// 2023, so it is intentionally excluded from the list.
 export const EGX_ETFS = [
-  { symbol: "EGPT",      en: "VanEck Egypt Index ETF (NYSE)",  ar: "صندوق فان إيك مصر (بورصة نيويورك)", currencyHint: "USD" },
   { symbol: "WIEGY.FGI", en: "FTSE Egypt Index (WisdomTree)",  ar: "مؤشر فوتسي مصر (ويزدوم تري)",       currencyHint: "USD" },
 ];
 

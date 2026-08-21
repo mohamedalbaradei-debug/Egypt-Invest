@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: egypt-invest
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build:client
+    startCommand: npm start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

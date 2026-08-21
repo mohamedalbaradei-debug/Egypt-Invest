@@ -27,12 +27,25 @@ async function quote(symbol) {
   return cached(`q:${symbol}`, TTL, async () => {
     try {
       const [q] = await yahooFinance.quote([symbol]);
-      return q ?? null;
+      if (q && q.regularMarketPrice != null) return q;
+      // Yahoo's quote endpoint can return empty on datacenter IPs while the
+      // chart endpoint still works — synthesize spot fields from chart closes.
+      const series = await closes(symbol, 10);
+      if (!series.length) return q ?? null;
+      const last = series[series.length - 1].close;
+      const prev = series.length > 1 ? series[series.length - 2].close : null;
+      return {
+        ...(q ?? {}),
+        symbol,
+        regularMarketPrice: last,
+        regularMarketChangePercent: prev ? ((last - prev) / prev) * 100 : undefined,
+      };
     } catch {
       return null;
     }
   });
 }
+export { quote as quoteSmart };
 
 // Daily closes (oldest→newest) for the last `days`. Returns [] on failure.
 async function closes(symbol, days = 400) {

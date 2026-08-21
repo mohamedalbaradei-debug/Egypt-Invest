@@ -1,5 +1,5 @@
 import { yahooFinance, chartSafe } from "./yahoo.js";
-import { getInflation, getFxData, getBasketHistory, closesToOhlc } from "./market.js";
+import { getInflation, getFxData, getBasketHistory, closesToOhlc, quoteSmart } from "./market.js";
 import { CBE_POLICY } from "../data/econ.js";
 import { EGX_INDICES } from "../data/egx.js";
 
@@ -247,7 +247,7 @@ export async function analyzeTicker(symbol) {
 
   const [chartRes, quoteRes, inflationRes, fxRes, basketRes] = await Promise.allSettled([
     isIndex ? Promise.resolve(null) : chartSafe(symbol, { period1: since, interval: "1d" }),
-    yahooFinance.quote([symbol]),
+    quoteSmart(symbol),
     getInflation(),
     getFxData(),
     isIndex ? getBasketHistory(365) : Promise.resolve(null),

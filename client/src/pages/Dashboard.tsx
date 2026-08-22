@@ -29,6 +29,69 @@ function AllocBar({ o }: { o: Overview["decision"]["allocation"][number] }) {
 
 type RiskProfile = "conservative" | "balanced" | "aggressive";
 
+type RealValueData = {
+  inflation: { inflationPct: number | null; year: string | null };
+  bars: Array<{ key: string; labelEn: string; labelAr: string; pct: number }>;
+};
+
+function RealValueSection() {
+  const { t, lang } = useLang();
+  const [data, setData] = React.useState<RealValueData | null>(null);
+
+  React.useEffect(() => {
+    fetch("/api/realvalue")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(setData)
+      .catch(() => {});
+  }, []);
+
+  if (!data || data.bars.length === 0) return null;
+  const cpi = data.inflation.inflationPct;
+
+  return (
+    <Card>
+      <SectionTitle>{t("rv_title")}</SectionTitle>
+      <p className="text-xs text-slate-400 mb-4">{t("rv_sub")}</p>
+      <div className="space-y-2.5">
+        {data.bars.map((b) => {
+          const beats = cpi == null ? true : b.pct >= cpi;
+          const width = Math.max(0, Math.min(100, (b.pct / 30) * 100));
+          const cpiWidth = cpi != null ? Math.max(0, Math.min(100, (cpi / 30) * 100)) : null;
+          return (
+            <div key={b.key} className="relative">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-slate-300">{lang === "ar" ? b.labelAr : b.labelEn}</span>
+                <span className="font-mono font-bold text-slate-100">
+                  {fmtPct(b.pct)}{" "}
+                  <span className={beats ? "text-emerald-400" : "text-red-400"}>
+                    · {beats ? t("rv_beats") : t("rv_lags")}
+                  </span>
+                </span>
+              </div>
+              <div className="h-3.5 bg-base-700 rounded-full overflow-hidden relative">
+                {cpiWidth != null && (
+                  <div
+                    className="absolute top-0 bottom-0 w-px bg-red-400/70 z-10"
+                    style={{ insetInlineStart: `${cpiWidth}%` }}
+                    title={`CPI ${fmtNum(cpi, 1)}%`}
+                  />
+                )}
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${width}%`,
+                    background: b.key === "cpi" ? "#f87171" : beats ? "#34d399" : "#94a3b8",
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 export default function Dashboard() {
   const { t, lang } = useLang();
   const [risk, setRisk] = React.useState<RiskProfile>("balanced");
@@ -295,6 +358,9 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Beat-inflation comparison */}
+      <RealValueSection />
 
       {/* Quick News */}
       <Card>

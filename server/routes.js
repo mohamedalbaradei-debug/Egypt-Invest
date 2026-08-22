@@ -5,9 +5,31 @@ import { analyzeTicker } from "./lib/analysis.js";
 import { buildDecision, buildRegime } from "./lib/decision.js";
 import { EGYPT_FUNDS, moneyMarketYield } from "./data/funds.js";
 import { EGX_STOCKS, EGX_ETFS, EGX_INDICES } from "./data/egx.js";
+import { db } from "./lib/db.js";
+import userRoutes from "./routes-user.js";
 
 const router = Router();
 const bi = (en, ar) => ({ en, ar });
+
+router.use(userRoutes);
+
+/** Funds list with admin yield overrides applied. */
+async function fundsWithOverrides() {
+  let overrides = {};
+  try {
+    overrides = await db.getFundOverrides();
+  } catch {
+    // storage unavailable — serve static data
+  }
+  const funds = EGYPT_FUNDS.map((f) => {
+    const o = overrides[f.id];
+    return o ? { ...f, yieldPct: o.yieldPct, asOf: o.asOf ?? f.asOf, note: o.note ?? undefined, overridden: true } : f;
+  });
+  const mmAvg =
+    funds.filter((f) => f.type === "money-market").reduce((s, f) => s + f.yieldPct, 0) /
+      Math.max(1, funds.filter((f) => f.type === "money-market").length);
+  return { funds, avgMoneyMarketYield: isFinite(mmAvg) && mmAvg > 0 ? mmAvg : moneyMarketYield() };
+}
 
 router.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 
@@ -61,10 +83,11 @@ router.get("/market", async (_req, res) => {
 });
 
 // Curated money-market & fixed-income funds.
-router.get("/funds", (_req, res) => {
+router.get("/funds", async (_req, res) => {
+  const { funds, avgMoneyMarketYield } = await fundsWithOverrides();
   res.json({
-    funds: EGYPT_FUNDS,
-    avgMoneyMarketYield: moneyMarketYield(),
+    funds,
+    avgMoneyMarketYield,
     note: "Indicative yields from fund managers / FRA — dated, not live. Verify before investing.",
   });
 });

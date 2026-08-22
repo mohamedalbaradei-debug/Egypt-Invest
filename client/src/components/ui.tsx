@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { Loader2 } from "lucide-react";
 import { useLang, fmtNum, fmtCompact, pctColor, fmtPct } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
 
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`card card-hover p-5 ${className}`}>{children}</div>;
@@ -374,6 +375,7 @@ export function Hint({ k }: { k: string }) {
 
 // Watchlist hook backed by localStorage.
 export function useWatchlist() {
+  const { user } = useAuth();
   const [list, setList] = React.useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("ei_watchlist") ?? "[]");
@@ -381,13 +383,45 @@ export function useWatchlist() {
       return [];
     }
   });
-  const toggle = React.useCallback((sym: string) => {
-    setList((prev) => {
-      const next = prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym];
-      localStorage.setItem("ei_watchlist", JSON.stringify(next));
-      return next;
-    });
-  }, []);
+
+  // Signed in: hydrate from the server watchlist.
+  React.useEffect(() => {
+    if (!user) return;
+    fetch("/api/watchlist")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.symbols)) {
+          setList(d.symbols);
+          localStorage.setItem("ei_watchlist", JSON.stringify(d.symbols));
+        }
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const toggle = React.useCallback(
+    (sym: string) => {
+      setList((prev) => {
+        const has = prev.includes(sym);
+        const next = has ? prev.filter((s) => s !== sym) : [...prev, sym];
+        localStorage.setItem("ei_watchlist", JSON.stringify(next));
+        if (user) {
+          // Best-effort server sync; local state already updated.
+          fetch(has ? `/api/watchlist/${encodeURIComponent(sym)}` : "/api/watchlist", {
+            method: has ? "DELETE" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: has ? undefined : JSON.stringify({ symbol: sym }),
+          })
+            .then((r) => r.json())
+            .then((d) => {
+              if (Array.isArray(d.symbols)) setList(d.symbols);
+            })
+            .catch(() => {});
+        }
+        return next;
+      });
+    },
+    [user],
+  );
   return { list, toggle };
 }
 

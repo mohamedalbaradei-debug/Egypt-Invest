@@ -1,11 +1,12 @@
 import React from "react";
 import { Link } from "wouter";
-import { LayoutDashboard, BarChart3, Search as SearchIcon, Landmark, Languages, Newspaper } from "lucide-react";
+import { LayoutDashboard, BarChart3, Search as SearchIcon, Landmark, Languages, Newspaper, Wallet } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 
 const NAV = [
   { href: "/", icon: LayoutDashboard, key: "nav_dashboard" },
   { href: "/market", icon: BarChart3, key: "nav_market" },
+  { href: "/portfolio", icon: Wallet, key: "nav_portfolio" },
   { href: "/analyze", icon: SearchIcon, key: "nav_analyze" },
   { href: "/funds", icon: Landmark, key: "nav_funds" },
   { href: "/news", icon: Newspaper, key: "nav_news" },

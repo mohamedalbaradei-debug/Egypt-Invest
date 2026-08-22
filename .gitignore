@@ -5,3 +5,6 @@ build/
 .env.*
 *.log
 .DS_Store
+
+# runtime storage
+data/db.json

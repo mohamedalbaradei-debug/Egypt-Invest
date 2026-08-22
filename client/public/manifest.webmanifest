@@ -1,0 +1,19 @@
+{
+  "name": "Egypt Invest — مصر استثمر",
+  "short_name": "Egypt Invest",
+  "description": "Gold, EGX, USD/EGP and money-market funds for Egyptian investors — bilingual AR/EN",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f1a",
+  "theme_color": "#d4af37",
+  "dir": "auto",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

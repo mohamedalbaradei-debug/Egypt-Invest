@@ -302,6 +302,52 @@ export default function Funds() {
         </Card>
       </section>
 
+      {/* Broker CTAs — affiliate links (verify/replace with tracked URLs before enabling payouts) */}
+      <section className="mt-6">
+        <Card>
+          <h3 className="text-sm font-bold tracking-widest uppercase font-mono text-slate-200 mb-1">
+            {lang === "ar" ? "ابدأ الاستثمار" : "Start investing"}
+          </h3>
+          <p className="text-xs text-slate-400 mb-4">
+            {lang === "ar"
+              ? "وسطاء مصرية مرخّصة تتيح شراء صناديق النقد وأسهم البورصة من الهاتف."
+              : "Licensed Egyptian brokers that let you buy money-market funds and EGX shares from your phone."}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              {
+                name: "Thndr",
+                descEn: "Zero-commission stocks & funds app",
+                descAr: "أسهم وصناديق بدون عمولة",
+                url: "https://thndr.com",
+              },
+              {
+                name: "iScore",
+                descEn: "Brokerage & fixed-income funds",
+                descAr: "وساطة وصناديق دخل ثابت",
+                url: "https://www.iscore.com/",
+              },
+            ].map((b) => (
+              <a
+                key={b.name}
+                href={b.url}
+                target="_blank"
+                rel="noopener sponsored"
+                className="flex items-center justify-between bg-base-700/60 hover:bg-base-700 border border-base-600 rounded-lg px-4 py-3 transition-colors group"
+              >
+                <div>
+                  <div className="font-bold text-slate-100 text-sm">{b.name}</div>
+                  <div className="text-xs text-slate-400">{lang === "ar" ? b.descAr : b.descEn}</div>
+                </div>
+                <span className="text-gold-300 font-mono text-xs group-hover:underline">
+                  {lang === "ar" ? "افتح حساب ←" : "Open account →"}
+                </span>
+              </a>
+            ))}
+          </div>
+        </Card>
+      </section>
+
       <div className="text-[10px] text-slate-500 font-mono text-center">{t("disclaimer")}</div>
     </div>
   );

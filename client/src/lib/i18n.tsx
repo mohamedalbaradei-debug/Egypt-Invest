@@ -135,7 +135,7 @@ const dict = {
     al_chat: "رقم الدردشة من البوت",
     al_connect: "ربط واختبار",
     al_none: "لا تنبيهات بعد",
-    al_howto: "راسل @userinfobot على تيليجرام لمعرفة رقم الدردشة، وأنشئ بوتًا من @BotFather ثم ضع التوكن في إعدادات الخادم.",
+    al_howto: "التنبيهات تصلك كرسائل تيليجرام فورية على هاتفك — اربط حسابك مرة واحدة، وأي تنبيه تنشئه سيرسل تلقائيًا.",
     // History & goals & income
     hist_title: "قيمة محفظتك عبر الزمن",
     hist_empty: "سيظهر الرسم البياني بعد أول حفظ يومي للقيمة.",
@@ -319,7 +319,7 @@ const dict = {
     al_chat: "Bot chat id",
     al_connect: "Connect & test",
     al_none: "No alerts yet",
-    al_howto: "Message @userinfobot on Telegram for your chat id; create a bot with @BotFather and set its token in server settings.",
+    al_howto: "Alerts are delivered as instant Telegram messages on your phone — connect once, then any alert you create pings you automatically.",
     // History & goals & income
     hist_title: "Your portfolio value over time",
     hist_empty: "The chart appears after the first daily value is saved.",

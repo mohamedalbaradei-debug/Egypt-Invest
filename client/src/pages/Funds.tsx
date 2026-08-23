@@ -302,49 +302,35 @@ export default function Funds() {
         </Card>
       </section>
 
-      {/* Broker CTAs — affiliate links (verify/replace with tracked URLs before enabling payouts) */}
+      {/* Broker CTA — single official referral link */}
       <section className="mt-6">
         <Card>
           <h3 className="text-sm font-bold tracking-widest uppercase font-mono text-slate-200 mb-1">
-            {lang === "ar" ? "ابدأ الاستثمار" : "Start investing"}
+            {lang === "ar" ? "ابدأ الاستثمار مع ثاندر" : "Start investing with Thndr"}
           </h3>
-          <p className="text-xs text-slate-400 mb-4">
+          <p className="text-xs text-slate-400 mb-1">
             {lang === "ar"
-              ? "وسطاء مصرية مرخّصة تتيح شراء صناديق النقد وأسهم البورصة من الهاتف."
-              : "Licensed Egyptian brokers that let you buy money-market funds and EGX shares from your phone."}
+              ? "أسهم وصناديق بدون عمولة — سجّل من الهاتف في دقائق."
+              : "Zero-commission stocks & funds — sign up from your phone in minutes."}
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              {
-                name: "Thndr",
-                descEn: "Zero-commission stocks & funds app",
-                descAr: "أسهم وصناديق بدون عمولة",
-                url: "https://thndr.com",
-              },
-              {
-                name: "iScore",
-                descEn: "Brokerage & fixed-income funds",
-                descAr: "وساطة وصناديق دخل ثابت",
-                url: "https://www.iscore.com/",
-              },
-            ].map((b) => (
-              <a
-                key={b.name}
-                href={b.url}
-                target="_blank"
-                rel="noopener sponsored"
-                className="flex items-center justify-between bg-base-700/60 hover:bg-base-700 border border-base-600 rounded-lg px-4 py-3 transition-colors group"
-              >
-                <div>
-                  <div className="font-bold text-slate-100 text-sm">{b.name}</div>
-                  <div className="text-xs text-slate-400">{lang === "ar" ? b.descAr : b.descEn}</div>
-                </div>
-                <span className="text-gold-300 font-mono text-xs group-hover:underline">
-                  {lang === "ar" ? "افتح حساب ←" : "Open account →"}
-                </span>
-              </a>
-            ))}
-          </div>
+          <p className="text-sm text-slate-200 mb-4 leading-relaxed">
+            {lang === "ar"
+              ? "انضم إلى ثاندر عبر رابطي واحصل على مكافأة نقدية. لديك حساب بالفعل؟ أدخل اسم المستخدم @locko 💸"
+              : "Join Thndr with my link and get a cash reward. Already signed up? Just enter my username @locko 💸"}
+          </p>
+          <a
+            href="https://thndr.app.link/locko"
+            target="_blank"
+            rel="noopener sponsored"
+            className="inline-flex items-center gap-2 bg-gold-500 text-base-900 font-bold rounded-lg px-5 py-2.5 text-sm hover:bg-gold-400 transition-colors"
+          >
+            {lang === "ar" ? "افتح حساب ثندر واحصل على المكافأة ←" : "Open a Thndr account — get the reward →"}
+          </a>
+          <p className="text-[10px] text-slate-500 mt-3">
+            {lang === "ar"
+              ? "رابط إحالة. قد نحصل على عمولة دون أي تكلفة إضافية عليك."
+              : "Referral link. We may earn a commission at no extra cost to you."}
+          </p>
         </Card>
       </section>
 

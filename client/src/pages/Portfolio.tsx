@@ -266,6 +266,34 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
 type CatalogGroup = { id: string; assets: { id: string; en: string; ar: string }[] };
 type AssetAlert = { id: string; asset?: string; direction: string; rate: number; lastTriggeredAt?: string | null };
 
+/** Beginner-proof Telegram connection steps (bilingual, with links). */
+function TgSteps() {
+  const { lang } = useLang();
+  const ar = lang === "ar";
+  return (
+    <div className="bg-base-700/40 border border-base-600 rounded-lg p-3 mb-3">
+      <div className="text-xs font-bold text-slate-200 mb-2">
+        {ar ? "كيف تربط تيليجرام؟ (٣ خطوات)" : "How to connect Telegram? (3 steps)"}
+      </div>
+      <ol className="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
+        <li>
+          {ar ? "افتح بوتنا " : "Open our bot "}
+          <a href="https://t.me/EgyInvestBot" target="_blank" rel="noopener" className="text-gold-300 hover:underline font-mono">@EgyInvestBot</a>
+          {ar ? " في تيليجرام واضغط زر START — بدون هذه الخطوة لا يمكن للبوت مراسلتك." : " in Telegram and tap START — without this the bot cannot message you."}
+        </li>
+        <li>
+          {ar ? "افتح " : "Open "}
+          <a href="https://t.me/userinfobot" target="_blank" rel="noopener" className="text-gold-300 hover:underline font-mono">@userinfobot</a>
+          {ar ? " وأرسل له أي رسالة، وسيرد فورًا برقم الدردشة الخاص بك (رقم مثل 123456789)." : " and send it any message — it instantly replies with your Chat ID (a number like 123456789)."}
+        </li>
+        <li>
+          {ar ? "الصق الرقم هنا واضغط «ربط واختبار» — ستصل رسالة تأكيد خلال ثوانٍ." : "Paste that number here and tap Connect & test — a confirmation message arrives within seconds."}
+        </li>
+      </ol>
+    </div>
+  );
+}
+
 function AlertsPanel() {
   const { t, lang } = useLang();
   const { user } = useAuth();
@@ -414,17 +442,20 @@ function AlertsPanel() {
         </button>
       </form>
       {tgConfigured && (
-        <div className="mt-3 flex flex-wrap gap-2 items-center">
-          <input
-            placeholder={t("al_chat")}
-            value={chatId}
-            onChange={(e) => setChatId(e.target.value)}
-            className="w-36 bg-base-700 border border-base-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 font-mono"
-          />
-          <button onClick={connectTg} className="text-xs font-bold text-gold-300 hover:underline">
-            {t("al_connect")}
-          </button>
-          {msg && <span className="text-xs text-slate-400">{msg}</span>}
+        <div className="mt-3">
+          <TgSteps />
+          <div className="flex flex-wrap gap-2 items-center">
+            <input
+              placeholder={t("al_chat")}
+              value={chatId}
+              onChange={(e) => setChatId(e.target.value)}
+              className="w-36 bg-base-700 border border-base-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 font-mono"
+            />
+            <button onClick={connectTg} className="text-xs font-bold text-gold-300 hover:underline">
+              {t("al_connect")}
+            </button>
+            {msg && <span className="text-xs text-slate-400">{msg}</span>}
+          </div>
         </div>
       )}
     </Card>

@@ -21,6 +21,7 @@ type Totals = {
   totalEgp: number | null;
   totalUsd: number | null;
   totalChangePct: number | null;
+  annualIncomeEgp?: number | null;
 };
 
 const KIND_LABEL_KEYS = ["pf_kind_gold", "pf_kind_usd", "pf_kind_egx", "pf_kind_fund"] as const;
@@ -75,9 +76,23 @@ function AuthGate() {
       <button onClick={() => setMode(mode === "login" ? "register" : "login")} className="mt-3 text-xs text-gold-300 hover:underline">
         {mode === "login" ? t("pf_no_account") : t("pf_have_account")}
       </button>
+      <div className="mt-4 border-t border-base-600 pt-3">
+        <div className="text-xs font-bold text-slate-300 mb-1.5">{t("pf_benefits_title")}</div>
+        <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside leading-relaxed">
+          {([1, 2, 3, 4] as const).map((i) => (
+            <li key={i}>{t(`pf_benefit_${i}` as never)}</li>
+          ))}
+        </ul>
+      </div>
     </Card>
   );
 }
+
+type Presets = {
+  stocks: { symbol: string; en: string; ar: string }[];
+  etfs: { symbol: string; en: string; ar: string }[];
+  indices: { symbol: string; en: string; ar: string }[];
+};
 
 function AddAssetForm({ onAdded }: { onAdded: () => void }) {
   const { t, lang } = useLang();
@@ -87,6 +102,7 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
   const [costEgp, setCostEgp] = React.useState("");
   const [label, setLabel] = React.useState("");
   const [funds, setFunds] = React.useState<{ id: string; en: string; ar: string }[]>([]);
+  const [presets, setPresets] = React.useState<Presets | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -95,6 +111,12 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
       fetch("/api/funds")
         .then((r) => r.json())
         .then((d) => setFunds((d.funds ?? []).filter((f: { type: string }) => f.type === "money-market")))
+        .catch(() => {});
+    }
+    if (kind === "egx" && !presets) {
+      fetch("/api/portfolio/presets")
+        .then((r) => r.json())
+        .then(setPresets)
         .catch(() => {});
     }
   }, [kind]);
@@ -162,13 +184,37 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
             className="bg-base-700 border border-base-600 rounded-lg px-3 py-2 text-sm text-slate-100"
           />
           {kind === "egx" && (
-            <input
-              required
-              placeholder={t("pf_ref") + " — COMI.CA"}
-              value={ref}
-              onChange={(e) => setRef(e.target.value)}
-              className="bg-base-700 border border-base-600 rounded-lg px-3 py-2 text-sm text-slate-100 font-mono uppercase"
-            />
+            <>
+              <input
+                required
+                list="egx-presets"
+                placeholder={t("pf_ref") + " — COMI.CA"}
+                value={ref}
+                onChange={(e) => setRef(e.target.value.toUpperCase())}
+                className="bg-base-700 border border-base-600 rounded-lg px-3 py-2 text-sm text-slate-100 font-mono uppercase"
+              />
+              <datalist id="egx-presets">
+                {presets && (
+                  <>
+                    <optgroup label={t("al_grp_indices")}>
+                      {presets.indices.map((s) => (
+                        <option key={s.symbol} value={s.symbol}>{pick(s, lang)}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="ETF">
+                      {presets.etfs.map((s) => (
+                        <option key={s.symbol} value={s.symbol}>{pick(s, lang)}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={t("al_grp_stocks")}>
+                      {presets.stocks.map((s) => (
+                        <option key={s.symbol} value={s.symbol}>{pick(s, lang)}</option>
+                      ))}
+                    </optgroup>
+                  </>
+                )}
+              </datalist>
+            </>
           )}
           {kind === "fund" && (
             <select
@@ -203,6 +249,9 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
         </div>
 
         {err && <div className="text-xs text-red-400">{err}</div>}
+        {kind === "egx" && (
+          <p className="text-[11px] text-slate-500">{t("pf_index_note")}</p>
+        )}
         <button
           disabled={busy}
           className="flex items-center gap-2 bg-gold-500 text-base-900 font-bold rounded-lg px-4 py-2 text-sm hover:bg-gold-400 transition-colors"
@@ -214,12 +263,18 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+type CatalogGroup = { id: string; assets: { id: string; en: string; ar: string }[] };
+type AssetAlert = { id: string; asset?: string; direction: string; rate: number; lastTriggeredAt?: string | null };
+
 function AlertsPanel() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const { user } = useAuth();
-  const [alerts, setAlerts] = React.useState<Array<{ id: string; direction: string; rate: number }>>([]);
+  const [alerts, setAlerts] = React.useState<AssetAlert[]>([]);
+  const [catalog, setCatalog] = React.useState<CatalogGroup[]>([]);
   const [tgConfigured, setTgConfigured] = React.useState(false);
   const [chatId, setChatId] = React.useState("");
+  const [asset, setAsset] = React.useState("USDEGP");
+  const [customAsset, setCustomAsset] = React.useState("");
   const [direction, setDirection] = React.useState<"above" | "below">("above");
   const [rate, setRate] = React.useState("");
   const [msg, setMsg] = React.useState<string | null>(null);
@@ -237,16 +292,34 @@ function AlertsPanel() {
   }, [user]);
 
   React.useEffect(load, [load]);
+  React.useEffect(() => {
+    fetch("/api/alerts/catalog")
+      .then((r) => r.json())
+      .then((d) => setCatalog(d.groups ?? []))
+      .catch(() => {});
+  }, []);
+
+  function labelFor(id?: string): string {
+    if (!id) return "USD / EGP";
+    for (const g of catalog) {
+      const a = g.assets.find((x) => x.id === id);
+      if (a) return pick(a, lang);
+    }
+    return id;
+  }
 
   async function createAlert(e: React.FormEvent) {
     e.preventDefault();
+    const finalAsset = asset === "__custom" ? customAsset.trim().toUpperCase() : asset;
+    if (!finalAsset) return;
     const r = await fetch("/api/alerts/fx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ direction, rate: Number(rate) }),
+      body: JSON.stringify({ asset: finalAsset, direction, rate: Number(rate) }),
     });
     if (r.ok) {
       setRate("");
+      setCustomAsset("");
       load();
     }
   }
@@ -280,7 +353,7 @@ function AlertsPanel() {
           {alerts.map((a) => (
             <li key={a.id} className="flex items-center justify-between bg-base-700/60 rounded-lg px-3 py-2 text-sm">
               <span className="font-mono">
-                USD/EGP {a.direction === "above" ? ">" : "<"}{" "}
+                {labelFor(a.asset)} {a.direction === "above" ? ">" : "<"}{" "}
                 <b className="text-gold-300">{fmtNum(a.rate)}</b>
               </span>
               <button
@@ -297,6 +370,29 @@ function AlertsPanel() {
         </ul>
       )}
       <form onSubmit={createAlert} className="flex flex-wrap gap-2 items-center">
+        <select
+          value={asset}
+          onChange={(e) => setAsset(e.target.value)}
+          className="bg-base-700 border border-base-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 max-w-44"
+        >
+          {catalog.map((g) => (
+            <optgroup key={g.id} label={t(`al_grp_${g.id}` as never)}>
+              {g.assets.map((a) => (
+                <option key={a.id} value={a.id}>{pick(a, lang)}</option>
+              ))}
+            </optgroup>
+          ))}
+          <option value="__custom">{t("al_custom")}</option>
+        </select>
+        {asset === "__custom" && (
+          <input
+            required
+            placeholder="MSFT / ABUK.CA"
+            value={customAsset}
+            onChange={(e) => setCustomAsset(e.target.value.toUpperCase())}
+            className="w-32 bg-base-700 border border-base-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 font-mono uppercase"
+          />
+        )}
         <select
           value={direction}
           onChange={(e) => setDirection(e.target.value as "above" | "below")}
@@ -331,6 +427,146 @@ function AlertsPanel() {
           {msg && <span className="text-xs text-slate-400">{msg}</span>}
         </div>
       )}
+    </Card>
+  );
+}
+
+function HistoryCard() {
+  const { t } = useLang();
+  const [snaps, setSnaps] = React.useState<{ day: string; totalEgp: number | null }[]>([]);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/snapshots?days=90")
+      .then((r) => r.json())
+      .then((d) => setSnaps(d.snapshots ?? []))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const pts = snaps.filter((s) => s.totalEgp != null);
+  const first = pts[0]?.totalEgp ?? null;
+  const last = pts[pts.length - 1]?.totalEgp ?? null;
+  const changePct = first != null && last != null && first > 0 ? ((last - first) / first) * 100 : null;
+
+  // SVG line chart, 300×92 viewBox.
+  let path = "";
+  if (pts.length >= 2) {
+    const vals = pts.map((p) => p.totalEgp as number);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const span = max - min || 1;
+    path = pts
+      .map((p, i) => `${(i / (pts.length - 1)) * 296 + 2},${88 - (((p.totalEgp as number) - min) / span) * 82}`)
+      .join(" ");
+  }
+
+  return (
+    <Card>
+      <div className="flex items-baseline justify-between gap-2">
+        <SectionTitle>{t("hist_title")}</SectionTitle>
+        {changePct != null && (
+          <span className={`font-mono text-sm ${pctColor(changePct)}`}>{fmtPct(changePct)}</span>
+        )}
+      </div>
+      {!loaded ? (
+        <LoadState />
+      ) : path ? (
+        <svg viewBox="0 0 300 92" className="w-full mt-2" preserveAspectRatio="none" aria-hidden>
+          <polyline points={path} fill="none" stroke="#d4af37" strokeWidth="2" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <p className="text-xs text-slate-500 py-4">{t("hist_empty")}</p>
+      )}
+    </Card>
+  );
+}
+
+function GoalsCard({ totalEgp }: { totalEgp: number | null }) {
+  const { t } = useLang();
+  const [goals, setGoals] = React.useState<{ id: string; name: string; targetEgp: number }[]>([]);
+  const [name, setName] = React.useState("");
+  const [target, setTarget] = React.useState("");
+
+  const load = React.useCallback(() => {
+    fetch("/api/goals")
+      .then((r) => r.json())
+      .then((d) => setGoals(d.goals ?? []))
+      .catch(() => {});
+  }, []);
+  React.useEffect(load, [load]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const r = await fetch("/api/goals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, targetEgp: Number(target) }),
+    });
+    if (r.ok) {
+      setName("");
+      setTarget("");
+      load();
+    }
+  }
+
+  return (
+    <Card>
+      <SectionTitle>{t("goal_title")}</SectionTitle>
+      {goals.length === 0 && <p className="text-xs text-slate-500 py-2">—</p>}
+      <ul className="space-y-3 mb-3">
+        {goals.map((g) => {
+          const pct =
+            totalEgp != null && totalEgp > 0 ? Math.min(100, (totalEgp / g.targetEgp) * 100) : 0;
+          return (
+            <li key={g.id}>
+              <div className="flex items-center justify-between gap-2 text-xs mb-1">
+                <span className="font-bold text-slate-200">{g.name}</span>
+                <span className="font-mono text-slate-400 truncate">
+                  {fmtNum(Math.min(totalEgp ?? 0, g.targetEgp))} / {fmtNum(g.targetEgp)} ج.م ·{" "}
+                  {Math.round(pct)}% {t("goal_progress")}
+                </span>
+                <button
+                  onClick={async () => {
+                    await fetch(`/api/goals/${g.id}`, { method: "DELETE" });
+                    load();
+                  }}
+                  className="text-slate-500 hover:text-red-400"
+                  aria-label="delete"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="h-2 bg-base-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gold-500 transition-all duration-500"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <form onSubmit={add} className="flex flex-wrap gap-2 items-center">
+        <input
+          required
+          placeholder={t("goal_name")}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="flex-1 min-w-36 bg-base-700 border border-base-600 rounded-lg px-2 py-1.5 text-xs text-slate-100"
+        />
+        <input
+          required
+          inputMode="decimal"
+          placeholder={t("goal_target")}
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          className="w-28 bg-base-700 border border-base-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 font-mono"
+        />
+        <button className="flex items-center gap-1.5 bg-base-700 hover:bg-base-600 border border-base-600 rounded-lg px-3 py-1.5 text-xs font-bold text-gold-300">
+          <Plus className="w-3.5 h-3.5" /> {t("goal_add")}
+        </button>
+      </form>
     </Card>
   );
 }
@@ -386,7 +622,7 @@ export default function Portfolio() {
 
       {!loading && data && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <Stat label={t("pf_total_egp")} value={fmtNum(data.totals.totalEgp)} sub={`≈ $${fmtNum(data.totals.totalUsd)}`} />
             </Card>
@@ -406,6 +642,14 @@ export default function Portfolio() {
                 valueClass={pctColor(data.totals.totalChangePct)}
               />
             </Card>
+            {data.totals.annualIncomeEgp != null && (
+              <Card>
+                <Stat
+                  label={t("income_label")}
+                  value={`${fmtNum(data.totals.annualIncomeEgp)} ج.م`}
+                />
+              </Card>
+            )}
           </div>
 
           <Card>
@@ -467,6 +711,10 @@ export default function Portfolio() {
           </Card>
 
           <AddAssetForm onAdded={load} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <HistoryCard />
+            <GoalsCard totalEgp={data.totals.totalEgp} />
+          </div>
           <AlertsPanel />
 
           {data.note && <p className="text-[11px] text-slate-500 max-w-3xl">{data.note}</p>}

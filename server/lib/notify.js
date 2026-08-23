@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { assetLabel, resolveAssetPrice } from "./assets.js";
 
 /**
  * Optional Telegram delivery for alerts. Costs $0: create a bot with
@@ -23,19 +24,28 @@ export async function tgSend(chatId, text) {
 }
 
 /**
- * Periodic FX alert check. Re-arms only after the rate moves back across the
- * threshold (or 24h passes) to avoid spamming on every tick.
+ * Periodic multi-asset alert check (fx_alerts table, generalized with an
+ * asset key). Re-arms only after 24h to avoid spamming on every tick.
  */
 let checking = false;
 
-export async function checkFxAlerts(getUsdEgp) {
+export async function checkFxAlerts() {
   if (checking) return;
   checking = true;
   try {
-    const rate = await getUsdEgp();
-    if (!rate || !isFinite(rate)) return;
     const alerts = await db.allFxAlertsWithChats();
+    if (alerts.length === 0) return;
+
+    // Resolve each distinct asset once per cycle.
+    const assets = [...new Set(alerts.map((a) => a.asset))];
+    const priceByAsset = {};
+    for (const asset of assets) {
+      priceByAsset[asset] = await resolveAssetPrice(asset);
+    }
+
     for (const a of alerts) {
+      const rate = priceByAsset[a.asset];
+      if (!rate || !isFinite(rate)) continue;
       const hit =
         a.direction === "above" ? rate > a.rate : rate < a.rate;
       if (!hit) continue;
@@ -43,10 +53,14 @@ export async function checkFxAlerts(getUsdEgp) {
       const last = a.lastTriggeredAt ? Date.parse(a.lastTriggeredAt) : 0;
       if (Date.now() - last < 24 * 3600_000) continue;
 
+      const label = assetLabel(a.asset, "en");
+      const labelAr = assetLabel(a.asset, "ar");
+      const fmt = (v) => Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 });
+      const dirEn = a.direction === "above" ? "above" : "below";
+      const dirAr = a.direction === "above" ? "أعلى من" : "أقل من";
       const msg =
-        `Egypt Invest — USD/EGP ${rate.toFixed(2)} is ${a.direction} your threshold ` +
-        `${Number(a.rate).toFixed(2)}\n` +
-        `مصر استثمر — سعر الدولار ${rate.toFixed(2)} جنيه، تجاوز حد التنبيه (${a.direction === "above" ? "أعلى من" : "أقل من"}) ${Number(a.rate).toFixed(2)}`;
+        `Egypt Invest — ${label} ${fmt(rate)} is ${dirEn} your threshold ${fmt(a.rate)}\n` +
+        `مصر استثمر — ${labelAr} ${fmt(rate)}، تجاوز حد التنبيه (${dirAr}) ${fmt(a.rate)}`;
       const ok = await tgSend(a.chatId, msg);
       if (ok) await db.markAlertTriggered(a.id);
     }
@@ -58,12 +72,12 @@ export async function checkFxAlerts(getUsdEgp) {
 }
 
 /** Start the checker loop when a bot token exists. */
-export function startAlertLoop(getUsdEgp, intervalMs = 15 * 60_000) {
+export function startAlertLoop(intervalMs = 15 * 60_000) {
   if (!TOKEN) {
     console.log("[alerts] TELEGRAM_BOT_TOKEN not set — alert delivery disabled");
     return;
   }
   console.log("[alerts] telegram delivery active");
-  setInterval(() => checkFxAlerts(getUsdEgp), intervalMs);
-  setTimeout(() => checkFxAlerts(getUsdEgp), 20_000);
+  setInterval(() => checkFxAlerts(), intervalMs);
+  setTimeout(() => checkFxAlerts(), 20_000);
 }

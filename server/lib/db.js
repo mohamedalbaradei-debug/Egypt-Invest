@@ -33,6 +33,8 @@ function emptyDb() {
     fxAlerts: [],
     fundOverrides: {},
     telegramChats: {},
+    snapshots: [],
+    goals: [],
     pageviews: {}, // { "YYYY-MM-DD": { "/path": count } }
     seq: 1,
   };
@@ -108,6 +110,20 @@ async function pgInit() {
       last_triggered_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      total_egp DOUBLE PRECISION,
+      total_usd DOUBLE PRECISION,
+      PRIMARY KEY (user_id, day)
+    );
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      target_egp DOUBLE PRECISION NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS fund_overrides (
       fund_id TEXT PRIMARY KEY,
       yield_pct DOUBLE PRECISION NOT NULL,
@@ -126,6 +142,11 @@ async function pgInit() {
       PRIMARY KEY (day, ppath)
     );
   `);
+  // Migration: fx_alerts became the generic alerts table — asset column was
+  // added later; backfill legacy rows as USD/EGP.
+  await pgPool.query(`
+    ALTER TABLE fx_alerts ADD COLUMN IF NOT EXISTS asset TEXT;
+    UPDATE fx_alerts SET asset='USDEGP' WHERE asset IS NULL;`);
 }
 
 const uid = () => `u_${crypto.randomUUID()}`;
@@ -312,24 +333,24 @@ export const db = {
     }
   },
 
-  // FX alerts ───────────────────────────────────────────────────────────────
+  // Alerts (fx_alerts table, generalized with an asset key) ────────────────
   async listFxAlerts(userId) {
     if (usePg) {
       const r = await pgPool.query("SELECT * FROM fx_alerts WHERE user_id=$1 ORDER BY created_at DESC", [userId]);
-      return r.rows.map((a) => ({ id: a.id, direction: a.direction, rate: a.rate, lastTriggeredAt: a.last_triggered_at }));
+      return r.rows.map((a) => ({ id: a.id, asset: a.asset ?? "USDEGP", direction: a.direction, rate: a.rate, lastTriggeredAt: a.last_triggered_at }));
     }
-    return jsonDb.fxAlerts.filter((a) => a.userId === userId);
+    return jsonDb.fxAlerts.filter((a) => a.userId === userId).map((a) => ({ ...a, asset: a.asset ?? "USDEGP" }));
   },
 
-  async addFxAlert(userId, direction, rate) {
+  async addFxAlert(userId, asset, direction, rate) {
     const id = uid();
     if (usePg) {
-      await pgPool.query("INSERT INTO fx_alerts (id,user_id,direction,rate) VALUES ($1,$2,$3,$4)", [id, userId, direction, rate]);
+      await pgPool.query("INSERT INTO fx_alerts (id,user_id,direction,rate,asset) VALUES ($1,$2,$3,$4,$5)", [id, userId, direction, rate, asset]);
     } else {
-      jsonDb.fxAlerts.push({ id, userId, direction, rate, lastTriggeredAt: null });
+      jsonDb.fxAlerts.push({ id, userId, asset, direction, rate, lastTriggeredAt: null });
       await jsonSaveSoon();
     }
-    return { id, direction, rate };
+    return { id, asset, direction, rate };
   },
 
   async delFxAlert(userId, id) {
@@ -345,14 +366,83 @@ export const db = {
   async allFxAlertsWithChats() {
     if (usePg) {
       const r = await pgPool.query(`
-        SELECT a.id, a.user_id, a.direction, a.rate, a.last_triggered_at, t.chat_id
+        SELECT a.id, a.user_id, a.asset, a.direction, a.rate, a.last_triggered_at, t.chat_id
         FROM fx_alerts a LEFT JOIN telegram_chats t ON t.user_id=a.user_id`);
-      return r.rows.map((a) => ({ id: a.id, userId: a.user_id, direction: a.direction, rate: a.rate, lastTriggeredAt: a.last_triggered_at, chatId: a.chat_id }));
+      return r.rows.map((a) => ({ id: a.id, userId: a.user_id, asset: a.asset ?? "USDEGP", direction: a.direction, rate: a.rate, lastTriggeredAt: a.last_triggered_at, chatId: a.chat_id }));
     }
     return jsonDb.fxAlerts.map((a) => ({
       ...a,
+      asset: a.asset ?? "USDEGP",
       chatId: jsonDb.telegramChats[a.userId] ?? null,
     }));
+  },
+
+  // Portfolio snapshots (daily net-worth history) ──────────────────────────
+  async upsertSnapshot(userId, day, totalEgp, totalUsd) {
+    if (usePg) {
+      await pgPool.query(
+        `INSERT INTO portfolio_snapshots (user_id,day,total_egp,total_usd) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (user_id,day) DO UPDATE SET total_egp=EXCLUDED.total_egp, total_usd=EXCLUDED.total_usd`,
+        [userId, day, totalEgp, totalUsd],
+      );
+    } else {
+      jsonDb.snapshots = jsonDb.snapshots || [];
+      const row = jsonDb.snapshots.find((s) => s.userId === userId && s.day === day);
+      if (row) { row.totalEgp = totalEgp; row.totalUsd = totalUsd; }
+      else jsonDb.snapshots.push({ userId, day, totalEgp, totalUsd });
+      await jsonSaveSoon();
+    }
+  },
+
+  async listSnapshots(userId, days = 90) {
+    if (usePg) {
+      const r = await pgPool.query(
+        `SELECT day, total_egp, total_usd FROM portfolio_snapshots WHERE user_id=$1
+         ORDER BY day DESC LIMIT $2`,
+        [userId, days],
+      );
+      return r.rows.map((s) => ({ day: s.day, totalEgp: s.total_egp, totalUsd: s.total_usd })).reverse();
+    }
+    return (jsonDb.snapshots || [])
+      .filter((s) => s.userId === userId)
+      .slice(-days);
+  },
+
+  async listUserIdsWithHoldings() {
+    if (usePg) {
+      const r = await pgPool.query("SELECT DISTINCT user_id FROM holdings");
+      return r.rows.map((x) => x.user_id);
+    }
+    return [...new Set(jsonDb.holdings.map((h) => h.userId))];
+  },
+
+  // Savings goals ────────────────────────────────────────────────────────────
+  async listGoals(userId) {
+    if (usePg) {
+      const r = await pgPool.query("SELECT * FROM goals WHERE user_id=$1 ORDER BY created_at", [userId]);
+      return r.rows.map((g) => ({ id: g.id, name: g.name, targetEgp: g.target_egp }));
+    }
+    return jsonDb.goals.filter((g) => g.userId === userId).map((g) => ({ id: g.id, name: g.name, targetEgp: g.targetEgp }));
+  },
+
+  async addGoal(userId, name, targetEgp) {
+    const id = uid();
+    if (usePg) {
+      await pgPool.query("INSERT INTO goals (id,user_id,name,target_egp) VALUES ($1,$2,$3,$4)", [id, userId, name, targetEgp]);
+    } else {
+      jsonDb.goals.push({ id, userId, name, targetEgp });
+      await jsonSaveSoon();
+    }
+    return { id, name, targetEgp };
+  },
+
+  async delGoal(userId, id) {
+    if (usePg) {
+      await pgPool.query("DELETE FROM goals WHERE id=$1 AND user_id=$2", [id, userId]);
+    } else {
+      jsonDb.goals = jsonDb.goals.filter((g) => !(g.id === id && g.userId === userId));
+      await jsonSaveSoon();
+    }
   },
 
   async markAlertTriggered(id) {

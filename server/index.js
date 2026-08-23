@@ -3,9 +3,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import routes from "./routes.js";
-import { initDb } from "./lib/db.js";
+import { initDb, db } from "./lib/db.js";
 import { attachUser } from "./lib/auth.js";
 import { startAlertLoop } from "./lib/notify.js";
+import { getGoldData, getFxData } from "./lib/market.js";
+import { valuePortfolio } from "./lib/portfolio.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -61,12 +63,32 @@ initDb()
       if (selfUrl) {
         setInterval(() => fetch(`${selfUrl}/api/healthz`).catch(() => {}), 14 * 60_000);
       }
-      startAlertLoop(async () => {
+      // Daily net-worth snapshot for every user that has holdings.
+      // Runs hourly; upserts today's row so the chart always ends at "now".
+      async function snapshotAll() {
         try {
-          return (await getFxData()).usdEgp;
-        } catch {
-          return null;
+          const userIds = await db.listUserIdsWithHoldings();
+          if (userIds.length === 0) return;
+          const [gold, fx] = await Promise.all([getGoldData(), getFxData()]);
+          const day = new Date().toISOString().slice(0, 10);
+          for (const userId of userIds) {
+            try {
+              const { totals } = await valuePortfolio(userId, {
+                fxRate: fx.usdEgp,
+                gram24k: gold.gram24k,
+              });
+              await db.upsertSnapshot(userId, day, totals.totalEgp, totals.totalUsd);
+            } catch (e) {
+              console.error("[snapshots] user failed", e.message);
+            }
+          }
+        } catch (err) {
+          console.error("[snapshots] failed", err.message);
         }
-      });
+      }
+      setTimeout(() => void snapshotAll(), 45_000);
+      setInterval(() => void snapshotAll(), 60 * 60_000).unref();
+
+      startAlertLoop();
     });
   });

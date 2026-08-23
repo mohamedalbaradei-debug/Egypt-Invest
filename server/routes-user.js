@@ -11,6 +11,14 @@ import { valuePortfolio } from "./lib/portfolio.js";
 import { getGoldData, getFxData, getInflation, getIndexData } from "./lib/market.js";
 import { EGYPT_FUNDS, moneyMarketYield } from "./data/funds.js";
 import { tgSend, checkFxAlerts } from "./lib/notify.js";
+import {
+  ALERT_ASSETS,
+  isValidAlertAsset,
+  normalizeAsset,
+  assetLabel,
+  resolveAssetPrice,
+  portfolioPresets,
+} from "./lib/assets.js";
 
 const router = express.Router();
 
@@ -150,7 +158,19 @@ router.delete("/watchlist/:symbol", requireUser, async (req, res) => {
   res.json({ symbols: await db.listWatch(req.user.id) });
 });
 
-// ── Alerts ──────────────────────────────────────────────────────────────────
+// ── Alerts (any alertable asset: FX, gold, crypto, EGX stocks & indices) ────
+
+// Catalog of preset assets for the picker. Public — also powers the
+// portfolio add-form symbol suggestions.
+router.get("/alerts/catalog", (_req, res) => {
+  const groups = ["currency", "gold", "crypto", "indices", "stocks"];
+  res.json({
+    groups: groups.map((g) => ({
+      id: g,
+      assets: ALERT_ASSETS.filter((a) => a.grp === g).map((a) => ({ id: a.id, en: a.en, ar: a.ar })),
+    })),
+  });
+});
 
 router.get("/alerts/fx", requireUser, async (req, res) => {
   const [alerts, chatId] = await Promise.all([
@@ -161,16 +181,27 @@ router.get("/alerts/fx", requireUser, async (req, res) => {
 });
 
 router.post("/alerts/fx", requireUser, async (req, res) => {
+  const asset = normalizeAsset(req.body?.asset ?? "USDEGP");
+  if (!isValidAlertAsset(asset)) return res.status(400).json({ error: "invalid_asset" });
   const direction = req.body?.direction === "below" ? "below" : "above";
   const rate = Number(req.body?.rate);
-  if (!isFinite(rate) || rate <= 0 || rate > 10000)
+  if (!isFinite(rate) || rate <= 0 || rate > 10_000_000)
     return res.status(400).json({ error: "invalid_rate" });
-  res.json(await db.addFxAlert(req.user.id, direction, rate));
+  res.json(await db.addFxAlert(req.user.id, asset, direction, rate));
 });
 
 router.delete("/alerts/fx/:id", requireUser, async (req, res) => {
   await db.delFxAlert(req.user.id, req.params.id);
   res.json({ ok: true });
+});
+
+router.get("/alerts/price/:asset", requireUser, async (req, res) => {
+  const asset = normalizeAsset(req.params.asset);
+  try {
+    res.json({ asset, label: assetLabel(asset), price: await resolveAssetPrice(asset) });
+  } catch {
+    res.status(502).json({ error: "quote_failed" });
+  }
 });
 
 router.post("/alerts/telegram", requireUser, async (req, res) => {
@@ -187,9 +218,38 @@ router.post("/alerts/telegram", requireUser, async (req, res) => {
 
 // Manual trigger (also runs automatically every 15 min when bot configured).
 router.post("/alerts/check", requireUser, async (_req, res) => {
-  const fx = await getFxData();
-  await checkFxAlerts(() => fx.usdEgp);
-  res.json({ checkedAt: new Date().toISOString(), usdEgp: fx.usdEgp });
+  await checkFxAlerts();
+  res.json({ checkedAt: new Date().toISOString() });
+});
+
+// ── Portfolio presets (EGX stocks / indices / ETFs picker) ──────────────────
+
+router.get("/portfolio/presets", (_req, res) => res.json(portfolioPresets()));
+
+// ── Net-worth history snapshots ─────────────────────────────────────────────
+
+router.get("/snapshots", requireUser, async (req, res) => {
+  const snaps = await db.listSnapshots(req.user.id, Number(req.query.days ?? 90));
+  res.json({ snapshots: snaps });
+});
+
+// ── Savings goals ───────────────────────────────────────────────────────────
+
+router.get("/goals", requireUser, async (req, res) => {
+  res.json({ goals: await db.listGoals(req.user.id) });
+});
+
+router.post("/goals", requireUser, async (req, res) => {
+  const name = String(req.body?.name ?? "").trim().slice(0, 60);
+  const target = Number(req.body?.targetEgp);
+  if (!name) return res.status(400).json({ error: "invalid_name" });
+  if (!isFinite(target) || target <= 0) return res.status(400).json({ error: "invalid_target" });
+  res.json(await db.addGoal(req.user.id, name, target));
+});
+
+router.delete("/goals/:id", requireUser, async (req, res) => {
+  await db.delGoal(req.user.id, req.params.id);
+  res.json({ ok: true });
 });
 
 // ── Beat-inflation dashboard data (public) ─────────────────────────────────

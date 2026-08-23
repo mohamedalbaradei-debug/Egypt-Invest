@@ -17,7 +17,7 @@ import { db } from "./db.js";
  */
 
 const KINDS = new Set(["gold", "egx", "usd", "fund"]);
-const OZ_TO_GRAM = 31.1035;
+void KINDS; // documented set of supported holding kinds
 
 async function fundYieldFor(fundId) {
   const base = EGYPT_FUNDS.find((f) => f.id === fundId) || null;
@@ -49,10 +49,11 @@ export async function valuePortfolio(userId, { fxRate, gram24k }) {
     egxSymbols.map(async (sym) => {
       try {
         const q = await quoteSmart(sym);
+        // quoteSmart returns a flat Yahoo-style quote (or a reconstructed
+        // one with regularMarketPrice at top level).
         priceBySymbol[sym] =
-          q.quote?.regularMarketPrice ??
-          q.chart?.meta?.regularMarketPrice ??
-          q.meta?.regularMarketPrice ??
+          q?.regularMarketPrice ??
+          q?.chart?.meta?.regularMarketPrice ??
           null;
       } catch {
         priceBySymbol[sym] = null;
@@ -77,6 +78,7 @@ export async function valuePortfolio(userId, { fxRate, gram24k }) {
         const years = isFinite(start) ? Math.max(0, (now - start) / 365 / 86400_000) : 0;
         row.valueEgp = h.qty * (1 + (yieldPct / 100) * years);
         row.estimateNote = `${(yieldPct).toFixed(1)}%/yr × ${years.toFixed(2)}y`;
+        row.yieldPct = yieldPct;
       } else {
         row.valueEgp = h.qty; // unknown fund — show principal
       }
@@ -99,5 +101,20 @@ export async function valuePortfolio(userId, { fxRate, gram24k }) {
   totals.totalChangePct =
     totals.costEgpTotal > 0 ? ((totals.totalEgp - totals.costEgpTotal) / totals.costEgpTotal) * 100 : null;
 
-  return { rows, totals, prices: priceBySymbol, kindErrors: KINDS.size >= 0 ? undefined : undefined };
+  // Expected annual income from income-bearing holdings (money-market funds).
+  // EGX dividends are not modelled yet — only fund yields count here.
+  const incomeBreakdown = rows
+    .filter((r) => r.kind === "fund" && r.yieldPct != null)
+    .map((r) => ({
+      label: r.label || r.ref,
+      principalEgp: r.valueEgp,
+      yieldPct: r.yieldPct,
+      annualIncomeEgp: (r.valueEgp * r.yieldPct) / 100,
+    }));
+  totals.annualIncomeEgp =
+    incomeBreakdown.length > 0
+      ? incomeBreakdown.reduce((s, b) => s + b.annualIncomeEgp, 0)
+      : null;
+
+  return { rows, totals, prices: priceBySymbol, incomeBreakdown };
 }

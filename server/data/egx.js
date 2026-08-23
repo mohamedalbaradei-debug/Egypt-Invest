@@ -201,8 +201,8 @@ export const EGX_STOCKS = [
   { symbol: "GMCI.CA", en: "GMC Group For Industrial Commercial &amp; Financial Investments", ar: "جي إم سي للصناعات والاستثمارات" },
   { symbol: "EOSB.CA", en: "El Orouba Securities Brokerage", ar: "العروبة لوساطة الأوراق المالية" },
   { symbol: "COPR.CA", en: "Copper for Commercial Investment &amp; Real Estate Development", ar: "النحاس للاستثمار العقاري" },
-  { symbol: "NAPR", en: "NAPR", ar: "NAPR" },
-  { symbol: "VALU", en: "VALU", ar: "VALU" },
+  { symbol: "NAPR", en: "National Printing & Packaging", ar: "الوطنية للطباعة والتغليف" },
+  { symbol: "VALU", en: "ValU Consumer Finance", ar: "فاليو للتمويل الاستهلاكي" },
 ];
 
 // Egypt-exposure funds. The EGX itself lists almost no ETFs — local investors

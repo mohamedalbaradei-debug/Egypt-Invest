@@ -376,7 +376,10 @@ export function Hint({ k }: { k: string }) {
 // Watchlist hook backed by localStorage.
 export function useWatchlist() {
   const { user } = useAuth();
+  // Watchlist is a Premium (signed-in) feature — anonymous users get nothing.
+  const locked = !user;
   const [list, setList] = React.useState<string[]>(() => {
+    if (!user) return [];
     try {
       return JSON.parse(localStorage.getItem("ei_watchlist") ?? "[]");
     } catch {
@@ -400,29 +403,28 @@ export function useWatchlist() {
 
   const toggle = React.useCallback(
     (sym: string) => {
+      if (!user) return; // Premium only
       setList((prev) => {
         const has = prev.includes(sym);
         const next = has ? prev.filter((s) => s !== sym) : [...prev, sym];
         localStorage.setItem("ei_watchlist", JSON.stringify(next));
-        if (user) {
-          // Best-effort server sync; local state already updated.
-          fetch(has ? `/api/watchlist/${encodeURIComponent(sym)}` : "/api/watchlist", {
-            method: has ? "DELETE" : "POST",
-            headers: { "Content-Type": "application/json" },
-            body: has ? undefined : JSON.stringify({ symbol: sym }),
+        // Best-effort server sync; local state already updated.
+        fetch(has ? `/api/watchlist/${encodeURIComponent(sym)}` : "/api/watchlist", {
+          method: has ? "DELETE" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: has ? undefined : JSON.stringify({ symbol: sym }),
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (Array.isArray(d.symbols)) setList(d.symbols);
           })
-            .then((r) => r.json())
-            .then((d) => {
-              if (Array.isArray(d.symbols)) setList(d.symbols);
-            })
-            .catch(() => {});
-        }
+          .catch(() => {});
         return next;
       });
     },
     [user],
   );
-  return { list, toggle };
+  return { list, toggle, locked };
 }
 
 export function StarButton({ active, onClick }: { active: boolean; onClick: () => void }) {

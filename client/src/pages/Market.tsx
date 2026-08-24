@@ -13,7 +13,7 @@ function rsiColor(rsi: number | null): string {
 
 export default function Market() {
   const { t, lang } = useLang();
-  const { list: watchlist, toggle: toggleWatch } = useWatchlist();
+  const { list: watchlist, toggle: toggleWatch, locked: wlLocked } = useWatchlist();
   const [data, setData] = React.useState<MarketData | null>(null);
   const [globalData, setGlobalData] = React.useState<GlobalData | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
@@ -51,7 +51,9 @@ export default function Market() {
                   <tr key={s.symbol} className="hover:bg-base-700/40 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
-                        <StarButton active={watchlist.includes(s.symbol)} onClick={() => toggleWatch(s.symbol)} />
+                        {!wlLocked && (
+                          <StarButton active={watchlist.includes(s.symbol)} onClick={() => toggleWatch(s.symbol)} />
+                        )}
                         <Link href={`/analyze?t=${encodeURIComponent(s.symbol)}`} className="font-mono font-bold text-gold-300 hover:underline">
                           {s.symbol}
                         </Link>

@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "wouter";
 import { useLang, pick, fmtNum, fmtPct, pctColor } from "@/lib/i18n";
 import { api, type Overview, type NewsItem, type MarketStock } from "@/lib/api";
 import { Card, SectionTitle, LoadState, ErrorState, Spark, ChangeChip, Stat, CandleStickChart, Hint, useWatchlist } from "@/components/ui";
@@ -99,7 +100,7 @@ export default function Dashboard() {
   const [err, setErr] = React.useState<string | null>(null);
   const [news, setNews] = React.useState<NewsItem[]>([]);
   const [market, setMarket] = React.useState<MarketStock[]>([]);
-  const { list: watchlist } = useWatchlist();
+  const { list: watchlist, locked: wlLocked } = useWatchlist();
 
   // FX converter state
   const [usdAmount, setUsdAmount] = React.useState("100");
@@ -207,6 +208,23 @@ export default function Dashboard() {
       </Card>
 
       {/* Watchlist strip */}
+      {wlLocked ? (
+        <Card className="border-gold-500/30 bg-gradient-to-br from-gold-500/5 to-base-800">
+          <div className="text-center space-y-3 py-6 px-4">
+            <div className="flex items-center justify-center gap-2">
+              <Star className="w-4 h-4 text-gold-400" />
+              <h3 className="text-sm font-bold tracking-widest uppercase font-mono text-slate-200">{t("watchlist_title")}</h3>
+            </div>
+            <p className="text-sm text-slate-300 max-w-md mx-auto leading-relaxed">{t("watchlist_lock_sub")}</p>
+            <Link
+              href="/portfolio"
+              className="inline-block mt-1 bg-gold-500 text-base-900 px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-gold-400 transition-colors"
+            >
+              {t("pf_signin")}
+            </Link>
+          </div>
+        </Card>
+      ) : (
       <Card>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -229,6 +247,7 @@ export default function Dashboard() {
           </div>
         )}
       </Card>
+      )}
 
       {/* Top movers + converter row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

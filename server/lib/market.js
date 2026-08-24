@@ -39,12 +39,17 @@ async function doRefresh(key, fn, valid) {
 // Stale-while-revalidate: always serve the last-good value instantly (from the
 // DB cache, which survives restarts) and refresh in the background. A live
 // fetch only ever blocks when there is genuinely no cached snapshot at all.
-export async function cached(key, ttlMs, fn, valid = (v) => v != null) {
+// A cached value is only usable if it's present AND not an empty collection.
+// Empty arrays (e.g. a basket that failed to build) must never be served or
+// persisted, or they'd poison the cache permanently.
+const isUsable = (v) => v != null && !(Array.isArray(v) && v.length === 0);
+
+export async function cached(key, ttlMs, fn, valid = isUsable) {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.t < ttlMs) return hit.v;
+  if (hit && Date.now() - hit.t < ttlMs && isUsable(hit.v)) return hit.v;
 
   const lastGood = await db.getCache(key).catch(() => null);
-  if (lastGood != null) {
+  if (isUsable(lastGood)) {
     cache.set(key, { t: Date.now(), v: lastGood });
     doRefresh(key, fn, valid); // fire-and-forget
     return lastGood;
@@ -53,7 +58,7 @@ export async function cached(key, ttlMs, fn, valid = (v) => v != null) {
   // Nothing cached yet — fetch live, deduped across concurrent callers.
   await doRefresh(key, fn, valid);
   const fresh = cache.get(key);
-  return fresh ? fresh.v : null;
+  return fresh && isUsable(fresh.v) ? fresh.v : null;
 }
 const TTL = 5 * 60 * 1000;
 

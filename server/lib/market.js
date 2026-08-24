@@ -312,6 +312,7 @@ export async function getIndexData() {
 
 // ── Featured EGX market snapshot ─────────────────────────────────────────────
 export async function getEgxMarket() {
+  return cached("egx:full", TTL, async () => {
   const stocks = await Promise.all(
     EGX_STOCKS.map(async (s) => {
       const [qRaw, series, ohlcData] = await Promise.all([quote(s.symbol), closes(s.symbol, 400), ohlc(s.symbol, 365)]);
@@ -381,6 +382,7 @@ export async function getEgxMarket() {
   );
 
   return { stocks, etfs, indices, updatedAt: new Date().toISOString() };
+  });
 }
 
 function calcRSI(closesArr, period = 14) {

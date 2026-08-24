@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,9 @@ import { valuePortfolio } from "./lib/portfolio.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
+// Gzip all JSON responses — keeps the full market payload (incl. OHLC + full
+// series) fast to transfer without stripping any data.
+app.use(compression());
 app.use(express.json());
 
 // Simple in-memory rate limiter (per IP) for auth + analytics endpoints.

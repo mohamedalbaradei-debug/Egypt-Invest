@@ -42,8 +42,23 @@ app.use("/api", rateLimit(240), attachUser, routes);
 // Serve the built client (production), with SPA fallback.
 const clientDist = path.join(__dirname, "../client/dist");
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  app.get("*", (_req, res) => res.sendFile(path.join(clientDist, "index.html")));
+  // Hashed asset bundles are immutable; the HTML shell must always revalidate
+  // so a fresh deploy never serves a stale pre-deploy page referencing old JS.
+  app.use(
+    express.static(clientDist, {
+      immutable: true,
+      maxAge: "1y",
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        }
+      },
+    }),
+  );
+  app.get("*", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.join(clientDist, "index.html"));
+  });
 } else {
   app.get("/", (_req, res) =>
     res

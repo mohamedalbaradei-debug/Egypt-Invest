@@ -7,6 +7,7 @@ import { EGYPT_FUNDS, moneyMarketYield } from "./data/funds.js";
 import { EGX_STOCKS, EGX_ETFS, EGX_INDICES, FX_CROSSES, COMMODITIES } from "./data/egx.js";
 import { db } from "./lib/db.js";
 import userRoutes from "./routes-user.js";
+import { requireUser } from "./lib/auth.js";
 import { limitsFor, tierOf, ANON_ANALYSES_PER_DAY } from "./lib/tiers.js";
 
 const router = Router();
@@ -368,7 +369,7 @@ function resolveTicker(input) {
   return t;
 }
 
-router.post("/analyze", analyzeQuota, async (req, res) => {
+router.post("/analyze", requireUser, analyzeQuota, async (req, res) => {
   const raw = String(req.body?.ticker ?? "").trim();
   // Dropdown selections send exact:true and are used verbatim.
   const ticker = req.body?.exact ? raw.toUpperCase() : resolveTicker(raw);

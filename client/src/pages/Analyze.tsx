@@ -1,6 +1,8 @@
 import React from "react";
 import { useLang, pick, fmtNum, fmtPct, pctColor } from "@/lib/i18n";
 import { api, type SearchResult, type Analysis } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { Link } from "wouter";
 import { Card, SectionTitle, LoadState, ErrorState, ChangeChip, CandleStickChart, Stat, Hint } from "@/components/ui";
 import { Search, Loader2, AlertCircle, X, TrendingUp, TrendingDown, Target } from "lucide-react";
 
@@ -45,6 +47,7 @@ function Fact({ label, value, valueClass, hint }: { label: string; value: React.
 
 export default function Analyze() {
   const { t, lang } = useLang();
+  const { user } = useAuth();
   const [q, setQ] = React.useState("");
   const [showDrop, setShowDrop] = React.useState(false);
   const [hl, setHl] = React.useState(0);
@@ -59,6 +62,7 @@ export default function Analyze() {
   const initialTicker = params.get("t");
 
   React.useEffect(() => {
+    if (!user) return;
     if (initialTicker) {
       setQ(initialTicker);
       runAnalysis(initialTicker);
@@ -138,6 +142,31 @@ export default function Analyze() {
   };
 
   const a = analysis;
+
+  if (!user) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+        <Card className="border-gold-500/30 bg-gradient-to-br from-gold-500/5 to-base-800">
+          <div className="text-center space-y-3 py-8 px-4">
+            <div className="text-4xl">🔒</div>
+            <h1 className="text-2xl font-bold text-slate-100">{t("analyze_lock_title")}</h1>
+            <p className="text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">{t("analyze_lock_sub")}</p>
+            <Link
+              href="/portfolio"
+              className="inline-block mt-2 bg-gold-500 text-base-900 px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-gold-400 transition-colors"
+            >
+              {t("pf_signin")}
+            </Link>
+            <ul className="text-left max-w-md mx-auto mt-5 space-y-1.5 text-xs text-slate-300 list-disc list-inside">
+              {([1, 2, 3, 4, 5] as const).map((i) => (
+                <li key={i}>{t(`pf_benefit_${i}` as never)}</li>
+              ))}
+            </ul>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">

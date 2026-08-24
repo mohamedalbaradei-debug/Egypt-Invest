@@ -59,10 +59,19 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-2">
-          {user?.tier === "premium" && (
+          {user && (
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-gold-400/20 to-gold-500/10 border border-gold-500/40 text-[10px] font-bold tracking-wider text-gold-300">
               ★ PREMIUM
             </span>
+          )}
+          {!user && (
+            <Link
+              href="/portfolio"
+              onClick={() => setPath("/portfolio")}
+              className="px-3 py-2 rounded-lg bg-gold-500 text-base-900 text-sm font-bold hover:bg-gold-400 transition-colors"
+            >
+              {t("nav_signin")}
+            </Link>
           )}
           <button
             onClick={() => setLang(lang === "ar" ? "en" : "ar")}

@@ -79,7 +79,7 @@ function AuthGate() {
       <div className="mt-4 border-t border-base-600 pt-3">
         <div className="text-xs font-bold text-slate-300 mb-1.5">{t("pf_benefits_title")}</div>
         <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside leading-relaxed">
-          {([1, 2, 3, 4] as const).map((i) => (
+          {([1, 2, 3, 4, 5] as const).map((i) => (
             <li key={i}>{t(`pf_benefit_${i}` as never)}</li>
           ))}
         </ul>

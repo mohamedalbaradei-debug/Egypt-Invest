@@ -6,6 +6,7 @@ import routes from "./routes.js";
 import { initDb, db } from "./lib/db.js";
 import { attachUser } from "./lib/auth.js";
 import { startAlertLoop } from "./lib/notify.js";
+import { startDigestLoop } from "./lib/digest.js";
 import { getGoldData, getFxData } from "./lib/market.js";
 import { valuePortfolio } from "./lib/portfolio.js";
 
@@ -90,5 +91,6 @@ initDb()
       setInterval(() => void snapshotAll(), 60 * 60_000).unref();
 
       startAlertLoop();
+      startDigestLoop();
     });
   });

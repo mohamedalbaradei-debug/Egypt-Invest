@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "wouter";
 import { LayoutDashboard, BarChart3, Search as SearchIcon, Landmark, Languages, Newspaper, Wallet } from "lucide-react";
 import { useLang } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
 
 const NAV = [
   { href: "/", icon: LayoutDashboard, key: "nav_dashboard" },
@@ -14,6 +15,7 @@ const NAV = [
 
 export function Header() {
   const { t, lang, setLang } = useLang();
+  const { user } = useAuth();
   const [path, setPath] = React.useState(window.location.pathname);
 
   React.useEffect(() => {
@@ -55,13 +57,20 @@ export function Header() {
           })}
         </nav>
 
-        <button
-          onClick={() => setLang(lang === "ar" ? "en" : "ar")}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-base-600 text-sm font-bold text-slate-200 hover:border-gold-500/50 hover:text-gold-300 transition-colors"
-        >
-          <Languages className="w-4 h-4" />
-          {t("lang_toggle")}
-        </button>
+        <div className="flex items-center gap-2">
+          {user?.tier === "premium" && (
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-gold-400/20 to-gold-500/10 border border-gold-500/40 text-[10px] font-bold tracking-wider text-gold-300">
+              ★ PREMIUM
+            </span>
+          )}
+          <button
+            onClick={() => setLang(lang === "ar" ? "en" : "ar")}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-base-600 text-sm font-bold text-slate-200 hover:border-gold-500/50 hover:text-gold-300 transition-colors"
+          >
+            <Languages className="w-4 h-4" />
+            {t("lang_toggle")}
+          </button>
+        </div>
       </div>
       {/* Mobile nav */}
       <nav className="md:hidden flex items-center justify-around border-t border-base-600 px-2">

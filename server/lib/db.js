@@ -146,7 +146,9 @@ async function pgInit() {
   // added later; backfill legacy rows as USD/EGP.
   await pgPool.query(`
     ALTER TABLE fx_alerts ADD COLUMN IF NOT EXISTS asset TEXT;
-    UPDATE fx_alerts SET asset='USDEGP' WHERE asset IS NULL;`);
+    UPDATE fx_alerts SET asset='USDEGP' WHERE asset IS NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free';
+    ALTER TABLE telegram_chats ADD COLUMN IF NOT EXISTS digest_enabled BOOLEAN NOT NULL DEFAULT true;`);
 }
 
 const uid = () => `u_${crypto.randomUUID()}`;
@@ -198,10 +200,10 @@ export const db = {
     if (usePg) {
       await pgPool.query("INSERT INTO users (id,email,pw_hash,salt) VALUES ($1,$2,$3,$4)", [id, e, pwHash, salt]);
     } else {
-      jsonDb.users.push({ id, email: e, pwHash, salt, createdAt: Date.now() });
+      jsonDb.users.push({ id, email: e, pwHash, salt, tier: "free", createdAt: Date.now() });
       await jsonSaveSoon();
     }
-    return { id, email: e };
+    return { id, email: e, tier: "free" };
   },
 
   // Sessions ────────────────────────────────────────────────────────────────
@@ -221,16 +223,17 @@ export const db = {
     if (!token) return null;
     if (usePg) {
       const r = await pgPool.query(
-        `SELECT u.id, u.email FROM sessions s JOIN users u ON u.id=s.user_id
+        `SELECT u.id, u.email, u.tier FROM sessions s JOIN users u ON u.id=s.user_id
          WHERE s.token=$1 AND s.expires_at > now()`,
         [token],
       );
-      return r.rows[0] ?? null;
+      const row = r.rows[0];
+      return row ? { id: row.id, email: row.email, tier: row.tier ?? "free" } : null;
     }
     const s = jsonDb.sessions.find((x) => x.token === token);
     if (!s || s.expiresAt < Date.now()) return null;
     const u = jsonDb.users.find((x) => x.id === s.userId);
-    return u ? { id: u.id, email: u.email } : null;
+    return u ? { id: u.id, email: u.email, tier: u.tier ?? "free" } : null;
   },
 
   async deleteSession(token) {
@@ -475,6 +478,46 @@ export const db = {
       return r.rows[0]?.chat_id ?? null;
     }
     return jsonDb.telegramChats[userId] ?? null;
+  },
+
+  // Daily digest preference (stored alongside the chat binding) ────────────
+  async setDigestEnabled(userId, enabled) {
+    if (usePg) {
+      await pgPool.query("UPDATE telegram_chats SET digest_enabled=$2 WHERE user_id=$1", [userId, Boolean(enabled)]);
+    } else {
+      jsonDb.digestPrefs = jsonDb.digestPrefs || {};
+      jsonDb.digestPrefs[userId] = Boolean(enabled);
+      await jsonSaveSoon();
+    }
+  },
+
+  async getDigestEnabled(userId) {
+    if (usePg) {
+      const r = await pgPool.query(
+        "SELECT digest_enabled FROM telegram_chats WHERE user_id=$1",
+        [userId],
+      );
+      return r.rows[0] ? r.rows[0].digest_enabled !== false : null;
+    }
+    return jsonDb.digestPrefs?.[userId] ?? null;
+  },
+
+  /** Chat ids of users who want the daily digest (with their tier). */
+  async allDigestRecipients() {
+    if (usePg) {
+      const r = await pgPool.query(
+        `SELECT t.user_id, t.chat_id, u.tier FROM telegram_chats t
+         JOIN users u ON u.id = t.user_id WHERE t.digest_enabled = true`,
+      );
+      return r.rows.map((x) => ({ userId: x.user_id, chatId: x.chat_id, tier: x.tier ?? "free" }));
+    }
+    return Object.entries(jsonDb.telegramChats)
+      .filter(([uid]) => jsonDb.digestPrefs?.[uid] !== false)
+      .map(([uid, chatId]) => ({
+        userId: uid,
+        chatId,
+        tier: jsonDb.users.find((u) => u.id === uid)?.tier ?? "free",
+      }));
   },
 
   // Fund overrides (admin refresh pipeline) ────────────────────────────────

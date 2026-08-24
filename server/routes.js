@@ -7,11 +7,36 @@ import { EGYPT_FUNDS, moneyMarketYield } from "./data/funds.js";
 import { EGX_STOCKS, EGX_ETFS, EGX_INDICES } from "./data/egx.js";
 import { db } from "./lib/db.js";
 import userRoutes from "./routes-user.js";
+import { limitsFor, tierOf, ANON_ANALYSES_PER_DAY } from "./lib/tiers.js";
 
 const router = Router();
 const bi = (en, ar) => ({ en, ar });
 
 router.use(userRoutes);
+
+// ── /analyze daily quota: anonymous 3/day per IP, free 10/day, premium 200 ──
+const analyzeHits = new Map(); // key → { day, count }
+setInterval(() => analyzeHits.clear(), 24 * 3600_000).unref();
+export function analyzeQuota(req, res, next) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = req.user ? `u:${req.user.id}` : `ip:${req.ip}`;
+  const entry = analyzeHits.get(key);
+  const used = entry && entry.day === day ? entry.count : 0;
+  const max = req.user
+    ? limitsFor(req.user).analysesPerDay
+    : ANON_ANALYSES_PER_DAY;
+  if (used >= max) {
+    return res.status(403).json({
+      error: "quota_reached",
+      quota: { used, max },
+      message: req.user
+        ? "Daily analysis limit reached — upgrade for more."
+        : "Daily limit for guests. Sign in for more analyses.",
+    });
+  }
+  analyzeHits.set(key, { day, count: used + 1 });
+  next();
+}
 
 /** Funds list with admin yield overrides applied. */
 async function fundsWithOverrides() {
@@ -315,7 +340,7 @@ function resolveTicker(input) {
   return t;
 }
 
-router.post("/analyze", async (req, res) => {
+router.post("/analyze", analyzeQuota, async (req, res) => {
   const raw = String(req.body?.ticker ?? "").trim();
   // Dropdown selections send exact:true and are used verbatim.
   const ticker = req.body?.exact ? raw.toUpperCase() : resolveTicker(raw);

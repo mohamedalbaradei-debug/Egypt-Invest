@@ -19,6 +19,7 @@ import {
   resolveAssetPrice,
   portfolioPresets,
 } from "./lib/assets.js";
+import { limitsFor, tierOf, quotaPayload, TIERS } from "./lib/tiers.js";
 
 const router = express.Router();
 
@@ -63,7 +64,7 @@ router.post("/auth/login", authLimit, async (req, res) => {
     if (!ok) return res.status(401).json({ error: "bad_credentials" });
     const token = await db.createSession(u.id);
     setSessionCookie(res, token);
-    res.json({ user: { id: u.id, email: u.email } });
+    res.json({ user: { id: u.id, email: u.email, tier: u.tier ?? "free" } });
   } catch (err) {
     console.error("[auth] login failed", err);
     res.status(500).json({ error: "server_error" });
@@ -118,6 +119,10 @@ router.get("/portfolio", requireUser, async (req, res) => {
 router.post("/portfolio", requireUser, async (req, res) => {
   const v = validateHolding(req.body ?? {});
   if (v.error) return res.status(400).json({ error: v.error });
+  const limits = limitsFor(req.user);
+  const existing = await db.listHoldings(req.user.id);
+  if (existing.length >= limits.holdings)
+    return res.status(403).json(quotaPayload(existing.length, limits.holdings));
   res.json(await db.addHolding(req.user.id, v.holding));
 });
 
@@ -149,6 +154,11 @@ router.get("/watchlist", requireUser, async (req, res) =>
 );
 
 router.post("/watchlist", requireUser, async (req, res) => {
+  const limits = limitsFor(req.user);
+  const existing = await db.listWatch(req.user.id);
+  const sym = String(req.body?.symbol ?? "").toUpperCase().trim();
+  if (sym && !existing.includes(sym) && existing.length >= limits.watchlist)
+    return res.status(403).json(quotaPayload(existing.length, limits.watchlist));
   await db.watchAdd(req.user.id, req.body?.symbol ?? "");
   res.json({ symbols: await db.listWatch(req.user.id) });
 });
@@ -173,11 +183,27 @@ router.get("/alerts/catalog", (_req, res) => {
 });
 
 router.get("/alerts/fx", requireUser, async (req, res) => {
-  const [alerts, chatId] = await Promise.all([
+  const [alerts, chatId, digestEnabled] = await Promise.all([
     db.listFxAlerts(req.user.id),
     db.getTgChat(req.user.id),
+    db.getDigestEnabled(req.user.id),
   ]);
-  res.json({ alerts, telegramConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN), chatId });
+  const limits = limitsFor(req.user);
+  res.json({
+    alerts,
+    telegramConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    chatId,
+    digestEnabled: digestEnabled !== false,
+    quota: { used: alerts.length, max: limits.alerts },
+    tier: tierOf(req.user),
+  });
+});
+
+// Toggle the daily bilingual Telegram digest.
+router.post("/alerts/digest", requireUser, async (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  await db.setDigestEnabled(req.user.id, enabled);
+  res.json({ ok: true, digestEnabled: enabled });
 });
 
 router.post("/alerts/fx", requireUser, async (req, res) => {
@@ -187,7 +213,15 @@ router.post("/alerts/fx", requireUser, async (req, res) => {
   const rate = Number(req.body?.rate);
   if (!isFinite(rate) || rate <= 0 || rate > 10_000_000)
     return res.status(400).json({ error: "invalid_rate" });
-  res.json(await db.addFxAlert(req.user.id, asset, direction, rate));
+  const limits = limitsFor(req.user);
+  const existing = await db.listFxAlerts(req.user.id);
+  if (existing.length >= limits.alerts)
+    return res.status(403).json(quotaPayload(existing.length, limits.alerts));
+  const created = await db.addFxAlert(req.user.id, asset, direction, rate);
+  res.json({
+    ...created,
+    quota: { used: existing.length + 1, max: limits.alerts },
+  });
 });
 
 router.delete("/alerts/fx/:id", requireUser, async (req, res) => {
@@ -229,8 +263,13 @@ router.get("/portfolio/presets", (_req, res) => res.json(portfolioPresets()));
 // ── Net-worth history snapshots ─────────────────────────────────────────────
 
 router.get("/snapshots", requireUser, async (req, res) => {
-  const snaps = await db.listSnapshots(req.user.id, Number(req.query.days ?? 90));
-  res.json({ snapshots: snaps });
+  const limits = limitsFor(req.user);
+  let days = Number(req.query.days ?? 90);
+  if (!isFinite(days) || days <= 0) days = 90;
+  const maxDays = limits.snapshotDays;
+  const clamped = Math.min(days, maxDays);
+  const snaps = await db.listSnapshots(req.user.id, clamped);
+  res.json({ snapshots: snaps, maxDays, limited: days > maxDays });
 });
 
 // ── Savings goals ───────────────────────────────────────────────────────────
@@ -244,12 +283,131 @@ router.post("/goals", requireUser, async (req, res) => {
   const target = Number(req.body?.targetEgp);
   if (!name) return res.status(400).json({ error: "invalid_name" });
   if (!isFinite(target) || target <= 0) return res.status(400).json({ error: "invalid_target" });
-  res.json(await db.addGoal(req.user.id, name, target));
+  const limits = limitsFor(req.user);
+  const existing = await db.listGoals(req.user.id);
+  if (existing.length >= limits.goals)
+    return res.status(403).json(quotaPayload(existing.length, limits.goals));
+  const created = await db.addGoal(req.user.id, name, target);
+  res.json({ ...created, quota: { used: existing.length + 1, max: limits.goals } });
 });
 
 router.delete("/goals/:id", requireUser, async (req, res) => {
   await db.delGoal(req.user.id, req.params.id);
   res.json({ ok: true });
+});
+
+// ── Portfolio X-ray: rule-based risk & diversification scoring ──────────────
+
+router.get("/portfolio/xray", requireUser, async (req, res) => {
+  try {
+    const [gold, fx] = await Promise.all([getGoldData(), getFxData()]);
+    const { rows, totals } = await valuePortfolio(req.user.id, {
+      fxRate: fx.usdEgp,
+      gram24k: gold.gram24k,
+    });
+    const total = totals?.totalEgp ?? 0;
+    if (!total || rows.length === 0)
+      return res.json({ ready: false, message: "add_holdings_first" });
+
+    const pctOf = (v) => Math.round(((v ?? 0) / total) * 1000) / 10;
+    const byKind = {};
+    for (const r of rows) byKind[r.kind] = (byKind[r.kind] ?? 0) + (r.valueEgp ?? 0);
+    const mix = {
+      gold: pctOf(byKind.gold),
+      egx: pctOf(byKind.egx),
+      usd: pctOf(byKind.usd),
+      fund: pctOf(byKind.fund),
+    };
+    const values = rows.map((r) => r.valueEgp ?? 0).sort((a, b) => b - a);
+    const topPositionPct = pctOf(values[0]);
+    const hardPct = mix.usd + mix.gold;
+
+    // Scores 0–100 (higher is better).
+    const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
+    const scores = {
+      concentration: clamp(100 - Math.max(topPositionPct - 25, 0) * 2),
+      diversification: clamp(
+        Math.min(rows.length, 8) * 7 + (Object.values(byKind).filter((v) => v > 5).length - 1) * 12,
+      ),
+      inflationShield: clamp(hardPct * 0.6 + Math.min(mix.fund, 50) * 0.8),
+    };
+    scores.overall = clamp(
+      scores.concentration * 0.3 + scores.diversification * 0.35 + scores.inflationShield * 0.35,
+    );
+
+    const flags = [];
+    const push = (level, en, ar) => flags.push({ level, en, ar });
+    if (topPositionPct > 40)
+      push("warn", `${topPositionPct}% of your portfolio sits in a single position`, `${topPositionPct}% من محفظتك في مركز واحد`);
+    else push("ok", "No dangerous single-position concentration", "لا توجد مخاطر تركز في مركز واحد");
+    if (hardPct < 15)
+      push("warn", `Only ${hardPct}% in gold/USD — weak hedge against EGP depreciation`, `${hardPct}% فقط في الذهب والدولار — تحوط ضعيف ضد انخفاض الجنيه`);
+    else if (hardPct > 70)
+      push("info", "Very heavy hard-currency allocation — consider some EGX/fund growth", "توزيع ثقيل على العملة الصعبة — فكر في بعض النمو عبر البورصة أو الصناديق");
+    else push("ok", "Reasonable hard-currency hedge", "تحوط معقول بالعملة الصعبة");
+    if ((mix.fund ?? 0) === 0)
+      push("warn", "No yield-bearing funds — cash idle elsewhere loses to ~inflation", "لا توجد صناديق بعائد — الأموال الأخرى تخسر أمام التضخم");
+    if (rows.length < 3)
+      push("info", "Few positions — adding more smooths out single-stock swings", "مراكز قليلة — إضافة المزيد يقلل تقلبات السهم الواحد");
+
+    res.json({
+      ready: true,
+      positions: rows.length,
+      mix,
+      topPositionPct,
+      hardCurrencyPct: hardPct,
+      scores,
+      flags,
+      tier: tierOf(req.user),
+    });
+  } catch (err) {
+    console.error("[xray]", err);
+    res.status(500).json({ error: "valuation_failed" });
+  }
+});
+
+// ── Income projection: compound reinvested fund income scenarios ────────────
+
+router.get("/portfolio/income", requireUser, async (req, res) => {
+  try {
+    const [gold, fx] = await Promise.all([getGoldData(), getFxData()]);
+    const { totals, incomeBreakdown } = await valuePortfolio(req.user.id, {
+      fxRate: fx.usdEgp,
+      gram24k: gold.gram24k,
+    });
+    const annual = totals?.annualIncomeEgp ?? 0;
+    if (!incomeBreakdown || incomeBreakdown.length === 0)
+      return res.json({ ready: false, message: "no_income_assets" });
+
+    const yearsList = [1, 3, 5];
+    const projections = yearsList.map((y) => {
+      let compounded = 0;
+      for (const b of incomeBreakdown) {
+        const r = b.yieldPct / 100;
+        compounded += b.principalEgp * Math.pow(1 + r, y) - b.principalEgp;
+      }
+      const simple = annual * y;
+      return { years: y, simpleIncomeEgp: Math.round(simple), compoundedIncomeEgp: Math.round(compounded) };
+    });
+
+    res.json({
+      ready: true,
+      annualIncomeEgp: Math.round(annual),
+      monthlyIncomeEgp: Math.round(annual / 12),
+      breakdown: incomeBreakdown.map((b) => ({
+        label: b.label,
+        principalEgp: Math.round(b.principalEgp ?? 0),
+        yieldPct: b.yieldPct,
+        annualIncomeEgp: Math.round(b.annualIncomeEgp ?? 0),
+      })),
+      projections,
+      note:
+        "Projections assume fund yields stay constant and income is reinvested. Not guaranteed returns.",
+    });
+  } catch (err) {
+    console.error("[income]", err);
+    res.status(500).json({ error: "valuation_failed" });
+  }
 });
 
 // ── Beat-inflation dashboard data (public) ─────────────────────────────────

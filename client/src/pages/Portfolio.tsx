@@ -137,6 +137,11 @@ function AddAssetForm({ onAdded }: { onAdded: () => void }) {
       }),
     });
     setBusy(false);
+    if (r.status === 403) {
+      const d = await r.json().catch(() => ({}));
+      setErr(lang === "ar" ? `الحد الأقصى ${d?.quota?.max ?? 50} أصول — الترقية قريباً` : `Free plan limit: ${d?.quota?.max ?? 50} assets`);
+      return;
+    }
     if (!r.ok) {
       setErr((await r.json().catch(() => ({}))).error ?? "error");
       return;
@@ -301,6 +306,8 @@ function AlertsPanel() {
   const [catalog, setCatalog] = React.useState<CatalogGroup[]>([]);
   const [tgConfigured, setTgConfigured] = React.useState(false);
   const [chatId, setChatId] = React.useState("");
+  const [quota, setQuota] = React.useState<{ used: number; max: number } | null>(null);
+  const [digestEnabled, setDigestEnabled] = React.useState(true);
   const [asset, setAsset] = React.useState("USDEGP");
   const [customAsset, setCustomAsset] = React.useState("");
   const [direction, setDirection] = React.useState<"above" | "below">("above");
@@ -315,6 +322,8 @@ function AlertsPanel() {
         setAlerts(d.alerts ?? []);
         setTgConfigured(Boolean(d.telegramConfigured));
         setChatId(d.chatId ?? "");
+        setQuota(d.quota ?? null);
+        setDigestEnabled(d.digestEnabled !== false);
       })
       .catch(() => {});
   }, [user]);
@@ -340,16 +349,33 @@ function AlertsPanel() {
     e.preventDefault();
     const finalAsset = asset === "__custom" ? customAsset.trim().toUpperCase() : asset;
     if (!finalAsset) return;
+    setMsg(null);
     const r = await fetch("/api/alerts/fx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ asset: finalAsset, direction, rate: Number(rate) }),
     });
+    if (r.status === 403) {
+      const d = await r.json().catch(() => null);
+      const max = d?.quota?.max ?? 3;
+      setMsg(lang === "ar" ? `الحد الأقصى ${max} تنبيهات — الترقية قريباً` : `Free plan limit: ${max} alerts — upgrade coming soon`);
+      return;
+    }
     if (r.ok) {
       setRate("");
       setCustomAsset("");
       load();
     }
+  }
+
+  async function toggleDigest() {
+    const next = !digestEnabled;
+    setDigestEnabled(next);
+    await fetch("/api/alerts/digest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    });
   }
 
   async function connectTg() {
@@ -374,7 +400,20 @@ function AlertsPanel() {
 
   return (
     <Card>
-      <SectionTitle>{t("al_title")}</SectionTitle>
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>{t("al_title")}</SectionTitle>
+        {quota && (
+          <span
+            className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+              quota.used >= quota.max
+                ? "border-red-500/40 text-red-400"
+                : "border-base-600 text-slate-400"
+            }`}
+          >
+            {quota.used}/{quota.max} {lang === "ar" ? "تنبيهات" : "alerts"}
+          </span>
+        )}
+      </div>
       {!tgConfigured && <p className="text-xs text-amber-400 mb-3">{t("al_howto")}</p>}
       {alerts.length > 0 && (
         <ul className="space-y-2 mb-4">
@@ -456,6 +495,13 @@ function AlertsPanel() {
             </button>
             {msg && <span className="text-xs text-slate-400">{msg}</span>}
           </div>
+          {/* Daily digest toggle */}
+          <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+            <input type="checkbox" checked={digestEnabled} onChange={toggleDigest} className="accent-gold-400" />
+            <span className="text-xs text-slate-300">
+              ☀️ {lang === "ar" ? "الملخص اليومي (٨ صباحاً بتوقيت القاهرة)" : "Daily digest — 8am Cairo time"}
+            </span>
+          </label>
         </div>
       )}
     </Card>
@@ -463,14 +509,18 @@ function AlertsPanel() {
 }
 
 function HistoryCard() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [snaps, setSnaps] = React.useState<{ day: string; totalEgp: number | null }[]>([]);
+  const [limited, setLimited] = React.useState(false);
   const [loaded, setLoaded] = React.useState(false);
 
   React.useEffect(() => {
     fetch("/api/snapshots?days=90")
       .then((r) => r.json())
-      .then((d) => setSnaps(d.snapshots ?? []))
+      .then((d) => {
+        setSnaps(d.snapshots ?? []);
+        setLimited(Boolean(d.limited));
+      })
       .catch(() => {})
       .finally(() => setLoaded(true));
   }, []);
@@ -503,12 +553,137 @@ function HistoryCard() {
       {!loaded ? (
         <LoadState />
       ) : path ? (
-        <svg viewBox="0 0 300 92" className="w-full mt-2" preserveAspectRatio="none" aria-hidden>
-          <polyline points={path} fill="none" stroke="#d4af37" strokeWidth="2" strokeLinejoin="round" />
-        </svg>
+        <>
+          <svg viewBox="0 0 300 92" className="w-full mt-2" preserveAspectRatio="none" aria-hidden>
+            <polyline points={path} fill="none" stroke="#d4af37" strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+          {limited && (
+            <p className="text-[10px] text-slate-500 mt-1">
+              🔒 {lang === "ar" ? "السجل الكامل متاح مع بريميوم قريباً" : "Full history available with Premium (coming soon)"}
+            </p>
+          )}
+        </>
       ) : (
         <p className="text-xs text-slate-500 py-4">{t("hist_empty")}</p>
       )}
+    </Card>
+  );
+}
+
+/** Rule-based portfolio health check: mix, concentration, inflation shield. */
+function XRayCard() {
+  const { lang } = useLang();
+  const [data, setData] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    fetch("/api/portfolio/xray")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+  }, []);
+
+  if (!data || data.ready === false) return null;
+  const score = data.scores?.overall ?? 0;
+  const scoreColor = score >= 70 ? "text-emerald-400" : score >= 40 ? "text-gold-300" : "text-red-400";
+
+  const MIX_LABELS: Record<string, [string, string]> = {
+    gold: ["Gold", "ذهب"],
+    egx: ["EGX stocks", "أسهم البورصة"],
+    usd: ["USD cash", "دولار"],
+    fund: ["Funds", "صناديق"],
+  };
+
+  return (
+    <Card>
+      <SectionTitle>{lang === "ar" ? "أشعة المحفظة 🔬" : "Portfolio X-Ray 🔬"}</SectionTitle>
+      <div className="flex items-center gap-4 mt-3">
+        <div className={`font-mono text-4xl font-bold ${scoreColor}`}>{score}</div>
+        <div className="text-[11px] text-slate-400 leading-snug">
+          {lang === "ar" ? "من ١٠٠ — صحة التوزيع والتحوط" : "/100 — allocation & hedge health"}
+          <div className="flex gap-3 mt-1 font-mono text-[10px] text-slate-500">
+            <span>{lang === "ar" ? `تركز ${data.scores.concentration}` : `conc ${data.scores.concentration}`}</span>
+            <span>{lang === "ar" ? `تنويع ${data.scores.diversification}` : `div ${data.scores.diversification}`}</span>
+            <span>{lang === "ar" ? `حماية ${data.scores.inflationShield}` : `shield ${data.scores.inflationShield}`}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mix bars */}
+      <div className="mt-3 space-y-1.5">
+        {Object.entries(data.mix as Record<string, number>)
+          .filter(([, v]) => v > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, v]) => (
+            <div key={k} className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-[10px] text-slate-400">{MIX_LABELS[k]?.[lang === "ar" ? 1 : 0] ?? k}</span>
+              <div className="h-2 flex-1 bg-base-700 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-gold-500 to-gold-300 rounded-full" style={{ width: `${v}%` }} />
+              </div>
+              <span className="w-12 text-right text-[10px] font-mono text-slate-300">{v}%</span>
+            </div>
+          ))}
+      </div>
+
+      <ul className="mt-3 space-y-1.5">
+        {(data.flags ?? []).map((f: any, i: number) => (
+          <li key={i} className="text-[11px] leading-relaxed flex gap-1.5">
+            <span>{f.level === "warn" ? "⚠️" : f.level === "info" ? "ℹ️" : "✅"}</span>
+            <span className="text-slate-300">{lang === "ar" ? f.ar : f.en}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/** Compounded income projection from yield-bearing fund holdings. */
+function IncomeCard() {
+  const { lang } = useLang();
+  const [data, setData] = React.useState<any>(null);
+  const fmtEgp = (v: number) => Math.round(v).toLocaleString("en-US");
+
+  React.useEffect(() => {
+    fetch("/api/portfolio/income")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+  }, []);
+
+  if (!data || data.ready === false) return null;
+
+  return (
+    <Card>
+      <SectionTitle>{lang === "ar" ? "توقعات الدخل 💰" : "Income Forecast 💰"}</SectionTitle>
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <div>
+          <div className="text-[10px] text-slate-500">{lang === "ar" ? "سنوياً" : "PER YEAR"}</div>
+          <div className="font-mono text-xl font-bold text-emerald-400">{fmtEgp(data.annualIncomeEgp)} EGP</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-slate-500">{lang === "ar" ? "شهرياً" : "PER MONTH"}</div>
+          <div className="font-mono text-xl font-bold text-slate-100">{fmtEgp(data.monthlyIncomeEgp)} EGP</div>
+        </div>
+      </div>
+
+      <table className="w-full mt-3 text-[11px] font-mono">
+        <thead>
+          <tr className="text-slate-500 border-b border-base-600">
+            <th className="text-left py-1.5 font-normal">{lang === "ar" ? "مدة" : "HORIZON"}</th>
+            <th className="text-right py-1.5 font-normal">{lang === "ar" ? "بدون إعادة استثمار" : "SIMPLE"}</th>
+            <th className="text-right py-1.5 font-normal">{lang === "ar" ? "مع إعادة الاستثمار" : "COMPOUNDED"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(data.projections ?? []).map((p: any) => (
+            <tr key={p.years} className="border-b border-base-700/50">
+              <td className="py-1.5 text-slate-300">{p.years}y</td>
+              <td className="py-1.5 text-right text-slate-400">{fmtEgp(p.simpleIncomeEgp)}</td>
+              <td className="py-1.5 text-right text-emerald-400 font-bold">{fmtEgp(p.compoundedIncomeEgp)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-[10px] text-slate-600 mt-2">{lang === "ar" ? "يفترض ثبات العائد وإعادة استثمار الدخل — ليست عائداً مضموناً" : "Assumes constant yields with reinvestment — not guaranteed returns."}</p>
     </Card>
   );
 }
@@ -534,6 +709,11 @@ function GoalsCard({ totalEgp }: { totalEgp: number | null }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, targetEgp: Number(target) }),
     });
+    if (r.status === 403) {
+      const d = await r.json().catch(() => null);
+      window.alert(`Free plan limit: ${d?.quota?.max ?? 5} goals — Premium coming soon`);
+      return;
+    }
     if (r.ok) {
       setName("");
       setTarget("");
@@ -745,6 +925,8 @@ export default function Portfolio() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <HistoryCard />
             <GoalsCard totalEgp={data.totals.totalEgp} />
+            <XRayCard />
+            <IncomeCard />
           </div>
           <AlertsPanel />
 

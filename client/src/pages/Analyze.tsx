@@ -95,7 +95,9 @@ export default function Analyze() {
       const a = await api.analyze(symbol, exact);
       setAnalysis(a);
     } catch (e) {
-      setErr((e as Error & { status?: number }).status === 404 ? t("analyze_notfound") : t("analyze_error"));
+      const err = e as Error & { status?: number };
+      if (err.status === 403) setErr(err.message || "Daily limit reached — sign in for more.");
+      else setErr(err.status === 404 ? t("analyze_notfound") : t("analyze_error"));
     } finally {
       setLoading(false);
     }

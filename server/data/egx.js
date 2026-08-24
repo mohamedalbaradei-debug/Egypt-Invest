@@ -221,6 +221,7 @@ export const EGX_INDICES = [
   { symbol: "^EGX35-LV.CA",    en: "EGX35-LV",     ar: "إيجي إكس 35 محدود السيولة", aliases: ["EGX35", "CASE35"] },
   { symbol: "^EGX70EWI.CA",    en: "EGX70 EWI",    ar: "إيجي إكس 70 متساوي الأوزان", aliases: ["EGX70", "CASE70"] },
   { symbol: "^EGX100EWI.CA",   en: "EGX100 EWI",   ar: "إيجي إكس 100 متساوي الأوزان", aliases: ["EGX100", "CASE100"] },
+  { symbol: "^EGX33.CA",       en: "EGX33",        ar: "إيجي إكس 33",              aliases: ["EGX33"] },
 ];
 
 export const EGX30_INDEX = { symbol: "^CASE30", en: "EGX30", ar: "إيجي إكس 30" };

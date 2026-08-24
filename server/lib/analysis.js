@@ -245,6 +245,7 @@ export async function analyzeTicker(symbol) {
   since.setFullYear(since.getFullYear() - 1);
 
   const isIndex = EGX_INDICES.some((i) => i.symbol === symbol);
+  const idxEntry = isIndex ? EGX_INDICES.find((i) => i.symbol === symbol) : null;
 
   const [chartRes, quoteRes, inflationRes, fxRes, basketRes, tvRes] = await Promise.allSettled([
     isIndex ? Promise.resolve(null) : chartSafe(symbol, { period1: since, interval: "1d" }),
@@ -291,7 +292,7 @@ export async function analyzeTicker(symbol) {
   // quote fills gaps. Stale Yahoo snapshots are allowed but labeled.
   const fq = q ?? staleQ;
   const tv = tvRes.status === "fulfilled" ? tvRes.value : null;
-  const companyName = q?.longName ?? q?.shortName ?? symbol;
+  const companyName = isIndex ? (idxEntry?.en ?? symbol) : (q?.longName ?? q?.shortName ?? symbol);
 
   const isoDay = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : typeof d === "string" ? d.slice(0, 10) : "");
   const historicalData = closes.length

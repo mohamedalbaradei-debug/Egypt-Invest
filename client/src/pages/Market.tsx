@@ -110,8 +110,8 @@ export default function Market() {
         <SectionTitle>{t("etfs_title")}</SectionTitle>
         <p className="text-xs text-slate-500 font-mono mb-4">
           {lang === "ar"
-            ? "البورصة المصرية لا تدرج صناديق ETF تقريبًا — المستثمر المحلي يستخدم صناديق الاستثمار المشتركة (تبويب الدخل الثابت). هذه هي صناديق مصر المتاحة دوليًا."
-            : "The EGX lists almost no ETFs — local investors use mutual funds (see Fixed Income tab). These are the Egypt funds available internationally."}
+            ? "البورصة المصرية لا تدرج صناديق ETF تقريبًا — المستثمر المحلي يستخدم صناديق الاستثمار المشتركة (تبويب حاسبة الاستثمار). هذه هي صناديق مصر المتاحة دوليًا."
+            : "The EGX lists almost no ETFs — local investors use mutual funds (see Investment Calculator tab). These are the Egypt funds available internationally."}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {(data.etfs ?? []).map((e) => (

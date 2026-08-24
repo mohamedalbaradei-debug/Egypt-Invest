@@ -230,3 +230,25 @@ export const EGX30_INDEX = { symbol: "^CASE30", en: "EGX30", ar: "إيجي إك�
 export const GOLD_SYMBOL = "GC=F";
 // USD/EGP spot.
 export const FX_SYMBOL = "EGP=X";
+
+// ── FX crosses vs the EGP ────────────────────────────────────────────────────
+// EUR and GBP are derived from their live USD rates (EURUSD=X, GBPUSD=X)
+// combined with the live USD/EGP rate. SAR and AED are pegged to the USD
+// (3.75 and 3.6725 per USD), so their EGP rate derives straight from the peg.
+// All rates verified to resolve to live data on Yahoo.
+export const FX_CROSSES = [
+  { id: "EUR/EGP", label: "يورو / جنيه",        name: "Euro",          base: "EURUSD=X", peg: null },
+  { id: "GBP/EGP", label: "استرليني / جنيه",    name: "British Pound", base: "GBPUSD=X", peg: null },
+  { id: "SAR/EGP", label: "ريال / جنيه",        name: "Saudi Riyal",   base: null,       peg: 3.75 },
+  { id: "AED/EGP", label: "درهم / جنيه",        name: "UAE Dirham",    base: null,       peg: 3.6725 },
+];
+
+// ── Global commodities (USD-denominated, traded on US exchanges) ────────────
+// Gold is handled separately (with EGP conversion). These are verified to
+// return live quotes/series on Yahoo and round out an Egyptian investor's
+// commodity view (precious metal + the oil Egypt imports).
+export const COMMODITIES = [
+  { symbol: "SI=F", name: "Silver",  ar: "فضة",          unit: "USD/oz",  color: "#cbd5e1" },
+  { symbol: "BZ=F", name: "Brent",   ar: "خام برنت",     unit: "USD/bbl", color: "#94a3b8" },
+  { symbol: "CL=F", name: "WTI",     ar: "خام غرب تكساس", unit: "USD/bbl", color: "#fbbf24" },
+];

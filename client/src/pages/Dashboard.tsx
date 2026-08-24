@@ -2,7 +2,7 @@ import React from "react";
 import { useLang, pick, fmtNum, fmtPct, pctColor } from "@/lib/i18n";
 import { api, type Overview, type NewsItem, type MarketStock } from "@/lib/api";
 import { Card, SectionTitle, LoadState, ErrorState, Spark, ChangeChip, Stat, CandleStickChart, Hint, useWatchlist } from "@/components/ui";
-import { Landmark, IndianRupee, TrendingUp, Coins, LineChart as LineIcon, Newspaper, Gauge, Star, ArrowUpRight, ArrowDownRight, Repeat } from "lucide-react";
+import { Landmark, IndianRupee, TrendingUp, Coins, LineChart as LineIcon, Newspaper, Gauge, Star, ArrowUpRight, ArrowDownRight, Repeat, Layers } from "lucide-react";
 
 const ALLOC_COLORS: Record<string, string> = {
   "money-market": "#34d399",
@@ -118,7 +118,7 @@ export default function Dashboard() {
   const inLang = news.filter((n) => (n.lang ?? "en") === lang);
   const topNews = (inLang.length >= 3 ? inLang : news).slice(0, 5);
 
-  const { gold, fx, index, inflation, decision, egxMomentum3m, regime } = data;
+  const { gold, fx, fxCrosses, commodities, index, inflation, decision, egxMomentum3m, regime } = data;
   const goldUsdColor = gold.usdChange6mPct != null && gold.usdChange6mPct >= 0 ? "#34d399" : "#f87171";
   const fxColor = fx.change6mPct != null && fx.change6mPct >= 0 ? "#f87171" : "#34d399";
 
@@ -306,6 +306,41 @@ export default function Dashboard() {
         <p className="text-[10px] text-slate-500 font-mono mt-2 leading-relaxed">{gold.note}</p>
       </Card>
 
+      {/* Global commodities (silver, Brent, WTI) */}
+      {commodities?.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-amber-300" />
+              <h3 className="text-sm font-bold tracking-widest uppercase font-mono text-slate-200">{lang === "ar" ? "السلع العالمية" : "COMMODITIES"}</h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {commodities.map((c: any) => (
+              <a
+                key={c.symbol}
+                href={`/analyze?t=${encodeURIComponent(c.symbol)}`}
+                className="p-3 rounded-lg bg-base-700/60 border border-base-600 hover:border-gold-500/40 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold text-gold-300">{c.name}</span>
+                  <ChangeChip value={c.change1dPct} />
+                </div>
+                <div className="font-mono text-lg text-slate-100 mt-1">
+                  {c.price != null ? fmtNum(c.price, 2) : "—"}
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono">{c.unit}</div>
+              </a>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-500 font-mono mt-3">
+            {lang === "ar"
+              ? "أسعار عالمية بالدولار: فضة وخام برنت وغرب تكساس. اضغط للتحليل."
+              : "Global USD prices — silver, Brent & WTI crude. Click for analysis."}
+          </p>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* FX with candlestick */}
         <Card>
@@ -321,6 +356,24 @@ export default function Dashboard() {
             <CandleStickChart ohlc={fx.ohlc} color={fxColor} height={180} />
           </div>
           <p className="text-[10px] text-slate-500 font-mono mt-2">{t("fx_note")}</p>
+          {fxCrosses?.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-base-600">
+              {fxCrosses.map((x: any) => (
+                <a
+                  key={x.id}
+                  href={`/analyze?t=${encodeURIComponent(x.id)}`}
+                  className="text-center hover:underline"
+                  title={x.name}
+                >
+                  <div className="text-[10px] text-slate-400 font-mono">{x.id}</div>
+                  <div className="font-mono text-sm text-slate-100">{x.rate != null ? fmtNum(x.rate, 3) : "—"}</div>
+                  <div className={`text-[10px] font-mono ${x.change1dPct != null && x.change1dPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {fmtPct(x.change1dPct)}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
         </Card>
 
         {/* EGX30 + inflation */}

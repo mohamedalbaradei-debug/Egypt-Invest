@@ -1,7 +1,7 @@
 import React from "react";
 import { useLang } from "@/lib/i18n";
-import { api, type MarketData } from "@/lib/api";
-import { Card, SectionTitle, LoadState, ErrorState, Spark, ChangeChip, fmtNum, CandleStickChart, StarButton, useWatchlist } from "@/components/ui";
+import { api, type MarketData, type GlobalData } from "@/lib/api";
+import { Card, SectionTitle, LoadState, ErrorState, Spark, ChangeChip, fmtNum, fmtPct, CandleStickChart, StarButton, useWatchlist } from "@/components/ui";
 import { Link } from "wouter";
 
 function rsiColor(rsi: number | null): string {
@@ -15,10 +15,12 @@ export default function Market() {
   const { t, lang } = useLang();
   const { list: watchlist, toggle: toggleWatch } = useWatchlist();
   const [data, setData] = React.useState<MarketData | null>(null);
+  const [globalData, setGlobalData] = React.useState<GlobalData | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     api.market().then(setData).catch(() => setErr("Could not load market data."));
+    api.global().then(setGlobalData).catch(() => {});
   }, []);
 
   if (err) return <ErrorState message={err} />;
@@ -119,6 +121,50 @@ export default function Market() {
             </Card>
           ))}
         </div>
+      </section>
+
+      <section>
+        <SectionTitle>{lang === "ar" ? "العملات والسلع العالمية" : "GLOBAL FX & COMMODITIES"}</SectionTitle>
+        <p className="text-sm text-slate-400 mb-4">
+          {lang === "ar"
+            ? "أسعار العملات مقابل الجنيه والسلع العالمية (بالدولار). اضغط لأي رمز للتحليل."
+            : "Currency crosses vs the Egyptian Pound and global commodities (USD). Click any item for analysis."}
+        </p>
+        {globalData && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold tracking-widest uppercase font-mono text-slate-200">{t("fx_title")}</h3>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {(globalData.fxCrosses ?? []).map((x) => (
+                  <a key={x.id} href={`/analyze?t=${encodeURIComponent(x.id)}`} className="p-3 rounded-lg bg-base-700/60 border border-base-600 hover:border-gold-500/40 transition-colors text-center">
+                    <div className="text-[10px] text-slate-400 font-mono">{x.id}</div>
+                    <div className="font-mono text-sm text-slate-100 mt-1">{x.rate != null ? fmtNum(x.rate, 3) : "—"}</div>
+                    <div className={`text-[10px] font-mono ${x.change1dPct != null && x.change1dPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtPct(x.change1dPct)}</div>
+                  </a>
+                ))}
+              </div>
+            </Card>
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold tracking-widest uppercase font-mono text-slate-200">{lang === "ar" ? "السلع" : "COMMODITIES"}</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {(globalData.commodities ?? []).map((c) => (
+                  <a key={c.symbol} href={`/analyze?t=${encodeURIComponent(c.symbol)}`} className="p-3 rounded-lg bg-base-700/60 border border-base-600 hover:border-gold-500/40 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-gold-300">{c.name}</span>
+                      <ChangeChip value={c.change1dPct} />
+                    </div>
+                    <div className="font-mono text-lg text-slate-100 mt-1">{c.price != null ? fmtNum(c.price, 2) : "—"}</div>
+                    <div className="text-[10px] text-slate-500 font-mono">{c.unit}</div>
+                  </a>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
       </section>
 
       <div className="text-[10px] text-slate-500 font-mono text-center">{t("disclaimer")}</div>

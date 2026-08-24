@@ -1,8 +1,8 @@
 import { yahooFinance, chartSafe } from "./yahoo.js";
-import { getInflation, getFxData, getBasketHistory, closesToOhlc, quoteSmart } from "./market.js";
+import { getInflation, getFxData, getFxCrosses, getBasketHistory, closesToOhlc, quoteSmart } from "./market.js";
 import { getTVFundamentals } from "./tv.js";
 import { CBE_POLICY } from "../data/econ.js";
-import { EGX_INDICES } from "../data/egx.js";
+import { EGX_INDICES, FX_CROSSES } from "../data/egx.js";
 
 const bi = (en, ar) => ({ en, ar });
 
@@ -243,6 +243,43 @@ function styleRec(overallTech, overallFund, chg3m, divYield, pe, macdHist) {
 export async function analyzeTicker(symbol) {
   const since = new Date();
   since.setFullYear(since.getFullYear() - 1);
+
+  // FX crosses (EUR/EGP, GBP/EGP, SAR/EGP, AED/EGP) are derived rates, not
+  // tradeable tickers on Yahoo — short-circuit with a lightweight report.
+  if (FX_CROSSES.some((c) => c.id === symbol)) {
+    const crosses = await getFxCrosses();
+    const c = crosses.find((x) => x.id === symbol);
+    if (!c || c.rate == null) return { symbol, historicalData: [], error: "no_data" };
+    return {
+      symbol,
+      companyName: `${c.name} / EGP`,
+      exchange: "FX",
+      assetType: "fx",
+      currency: "EGP",
+      price: c.rate,
+      currentPrice: c.rate,
+      changePct: c.change1dPct,
+      change1dPct: c.change1dPct,
+      change1mPct: c.change1mPct,
+      change6mPct: c.change6mPct,
+      historicalData: c.series.map((p) => ({ date: p.date, value: p.close })),
+      scores: { technical: 50, fundamental: 50, trader: 50, investor: 50 },
+      summary: {
+        en: `Live ${c.name} to Egyptian Pound rate, derived from USD base rates.`,
+        ar: `سعر صرف ${c.name} مقابل الجنيه المصري الحي، مشتق من أسعار الدولار.`,
+      },
+      traderRec: { en: "Monitor", ar: "مراقبة", score: 50 },
+      investorRec: { en: "Monitor", ar: "مراقبة", score: 50 },
+      recommendation: { en: "Monitor", ar: "مراقبة" },
+      technical: {},
+      fundamental: { note: { en: "FX rates carry no company fundamentals.", ar: "أسعار الصرف ليس لها قوائم مالية." } },
+      ohlc: [],
+      historyNote: { en: "Derived from live USD/EUR/GBP rates vs USD/EGP.", ar: "مشتق من أسعار الدولار واليورو والاسترليني مقابل الجنيه." },
+      macro: null,
+      rationale: { en: "", ar: "" },
+      disclaimer: { en: "", ar: "" },
+    };
+  }
 
   const isIndex = EGX_INDICES.some((i) => i.symbol === symbol);
   const idxEntry = isIndex ? EGX_INDICES.find((i) => i.symbol === symbol) : null;

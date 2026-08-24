@@ -92,6 +92,8 @@ export interface Regime {
 export interface Overview {
   gold: GoldData;
   fx: FxData;
+  fxCrosses: FxCross[];
+  commodities: Commodity[];
   index: IndexData;
   inflation: InflationData;
   egxMomentum3m: number | null;
@@ -144,6 +146,36 @@ export interface MarketData {
   stocks: MarketStock[];
   etfs: MarketETF[];
   indices: MarketIndex[];
+  updatedAt: string;
+}
+
+export interface FxCross {
+  id: string;
+  label: string;
+  name: string;
+  rate: number | null;
+  change1dPct: number | null;
+  change1mPct: number | null;
+  change6mPct: number | null;
+  series: Array<{ date: string; value: number }>;
+}
+
+export interface Commodity {
+  symbol: string;
+  name: string;
+  ar: string;
+  unit: string;
+  color: string;
+  price: number | null;
+  change1dPct: number | null;
+  change1mPct: number | null;
+  change6mPct: number | null;
+  ohlc: OHLCPoint[];
+}
+
+export interface GlobalData {
+  fxCrosses: FxCross[];
+  commodities: Commodity[];
   updatedAt: string;
 }
 
@@ -315,6 +347,7 @@ export const api = {
   overview: (risk: "conservative" | "balanced" | "aggressive" = "balanced") =>
     get<Overview>(`/api/overview?risk=${risk}`),
   market: () => get<MarketData>("/api/market"),
+  global: () => get<GlobalData>("/api/global"),
   plan: (amount: number, horizon: "short" | "mid" | "long", risk: "conservative" | "balanced" | "aggressive") =>
     get<InvestmentPlan>(`/api/plan?amount=${amount}&horizon=${horizon}&risk=${risk}`),
   funds: () => get<FundsData>("/api/funds"),

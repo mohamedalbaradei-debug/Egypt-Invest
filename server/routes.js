@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { yahooFinance } from "./lib/yahoo.js";
-import { getGoldData, getFxData, getIndexData, getEgxMarket, getInflation, cached } from "./lib/market.js";
+import { getGoldData, getFxData, getFxCrosses, getCommodities, getIndexData, getEgxMarket, getInflation, cached } from "./lib/market.js";
 import { analyzeTicker } from "./lib/analysis.js";
 import { buildDecision, buildRegime } from "./lib/decision.js";
 import { EGYPT_FUNDS, moneyMarketYield } from "./data/funds.js";
-import { EGX_STOCKS, EGX_ETFS, EGX_INDICES } from "./data/egx.js";
+import { EGX_STOCKS, EGX_ETFS, EGX_INDICES, FX_CROSSES, COMMODITIES } from "./data/egx.js";
 import { db } from "./lib/db.js";
 import userRoutes from "./routes-user.js";
 import { limitsFor, tierOf, ANON_ANALYSES_PER_DAY } from "./lib/tiers.js";
@@ -64,9 +64,11 @@ router.get("/overview", async (req, res) => {
     ? String(req.query.risk)
     : "balanced";
 
-  const [gold, fx, index, inflation, market] = await Promise.all([
+  const [gold, fx, fxCrosses, commodities, index, inflation, market] = await Promise.all([
     getGoldData(),
     getFxData(),
+    getFxCrosses(),
+    getCommodities(),
     getIndexData(),
     getInflation(),
     getEgxMarket(),
@@ -92,6 +94,8 @@ router.get("/overview", async (req, res) => {
   res.json({
     gold,
     fx,
+    fxCrosses,
+    commodities,
     index,
     inflation,
     egxMomentum3m: egx3mPct,
@@ -105,6 +109,15 @@ router.get("/overview", async (req, res) => {
 router.get("/market", async (_req, res) => {
   const market = await getEgxMarket();
   res.json(market);
+});
+
+// Global instruments beyond the EGX: FX crosses vs the EGP + commodities.
+router.get("/global", async (_req, res) => {
+  const [fxCrosses, commodities] = await Promise.all([
+    cached("fx:crosses", 5 * 60 * 1000, getFxCrosses),
+    cached("commodities", 5 * 60 * 1000, getCommodities),
+  ]);
+  res.json({ fxCrosses, commodities, updatedAt: new Date().toISOString() });
 });
 
 // Curated money-market & fixed-income funds.
@@ -261,7 +274,13 @@ router.get("/search", async (req, res) => {
   if (!q || q.length < 2) return res.json({ results: [] });
   const ql = q.toLowerCase();
 
-  const local = [...EGX_STOCKS, ...EGX_ETFS, ...EGX_INDICES]
+  const local = [
+    ...EGX_STOCKS,
+    ...EGX_ETFS,
+    ...EGX_INDICES,
+    ...FX_CROSSES.map((c) => ({ symbol: c.id, en: `${c.name} / EGP`, ar: c.label, aliases: [c.id.replace("/", ""), c.name] })),
+    ...COMMODITIES.map((c) => ({ symbol: c.symbol, en: c.name, ar: c.ar, aliases: [c.name, c.symbol.replace("=F", "")] })),
+  ]
     .filter((s) => {
       const aliases = s.aliases ?? [];
       return (
@@ -271,15 +290,19 @@ router.get("/search", async (req, res) => {
         aliases.some((a) => a.toLowerCase() === ql)
       );
     })
-    .map((s) => ({
-      symbol: s.symbol,
-      name: s.en,
-      exchange: s.symbol.startsWith("^") || s.symbol.includes("EWI") || s.symbol.includes("CAPPED") ? "INDEX" : s.symbol.endsWith(".CA") ? "EGX" : "NYSE",
-      type: s.symbol.startsWith("^") || s.symbol.includes("EWI") || s.symbol.includes("CAPPED") ? "INDEX" : s.symbol.endsWith(".CA") ? "EQUITY" : "ETF",
-      price: null,
-      currency: s.symbol.endsWith(".CA") && !s.symbol.startsWith("^") ? "EGP" : s.symbol === "EGPT" ? "USD" : "EGP",
-      local: true,
-    }));
+    .map((s) => {
+      const isFx = typeof s.symbol === "string" && s.symbol.includes("/");
+      const isComm = COMMODITIES.some((c) => c.symbol === s.symbol);
+      return {
+        symbol: s.symbol,
+        name: s.en,
+        exchange: isFx ? "FX" : isComm ? "COMMODITY" : s.symbol.startsWith("^") || s.symbol.includes("EWI") || s.symbol.includes("CAPPED") ? "INDEX" : s.symbol.endsWith(".CA") ? "EGX" : "NYSE",
+        type: isFx ? "FX" : isComm ? "COMMODITY" : s.symbol.startsWith("^") || s.symbol.includes("EWI") || s.symbol.includes("CAPPED") ? "INDEX" : s.symbol.endsWith(".CA") ? "EQUITY" : "ETF",
+        price: null,
+        currency: isComm ? "USD" : "EGP",
+        local: true,
+      };
+    });
 
   const seen = new Set(local.map((r) => r.symbol));
 
@@ -324,7 +347,12 @@ router.get("/search", async (req, res) => {
 function resolveTicker(input) {
   const t = String(input ?? "").trim().toUpperCase();
   if (!t) return t;
-  const symbols = [...EGX_STOCKS.map((s) => s.symbol), ...EGX_INDICES.map((i) => i.symbol)];
+  const symbols = [
+    ...EGX_STOCKS.map((s) => s.symbol),
+    ...EGX_INDICES.map((i) => i.symbol),
+    ...FX_CROSSES.map((c) => c.id),
+    ...COMMODITIES.map((c) => c.symbol),
+  ];
   if (symbols.some((s) => s.toUpperCase() === t)) return t;
   for (const idx of EGX_INDICES) {
     if ((idx.aliases ?? []).some((a) => String(a).toUpperCase() === t)) return idx.symbol;

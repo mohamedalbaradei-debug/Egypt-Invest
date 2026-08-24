@@ -1,5 +1,5 @@
 import { yahooFinance, chartSafe, quoteSafe } from "./yahoo.js";
-import { EGX_STOCKS, EGX_ETFS, EGX30_INDEX, EGX_INDICES, GOLD_SYMBOL, FX_SYMBOL } from "../data/egx.js";
+import { EGX_STOCKS, EGX_ETFS, EGX30_INDEX, EGX_INDICES, GOLD_SYMBOL, FX_SYMBOL, FX_CROSSES, COMMODITIES } from "../data/egx.js";
 import { WB_CPI_INDICATOR } from "../data/econ.js";
 import { db } from "./db.js";
 
@@ -292,6 +292,105 @@ export async function getFxData() {
   };
 }
 
+// ── FX crosses vs the EGP (derived from live base rates) ────────────────────
+// Returns EUR/GBP/SAR/AED expressed per 1 EGP, each with a return series (for
+// sparklines) and 1d % change. Yahoo serves quotes but NOT daily history for
+// the EURUSD/GBPUSD pairs, so the cross series is built from the live USD/EGP
+// history × the current foreign rate (the EGP leg drives the move an Egyptian
+// investor cares about). SAR & AED are pegged to the USD (3.75 / 3.6725).
+export async function getFxCrosses() {
+  const [egpQ, eurQ, gbpQ, egpSeries] = await Promise.all([
+    quote(FX_SYMBOL),
+    quote("EURUSD=X"),
+    quote("GBPUSD=X"),
+    closes(FX_SYMBOL, 260),
+  ]);
+  const egp = freshQuote(egpQ)?.regularMarketPrice ?? (egpSeries.length ? egpSeries[egpSeries.length - 1].close : null);
+  if (egp == null) return [];
+  const egpChg1d = freshQuote(egpQ)?.regularMarketChangePercent ?? pctChange(egpSeries, 1);
+  const eur = freshQuote(eurQ)?.regularMarketPrice ?? null;
+  const eurChg1d = freshQuote(eurQ)?.regularMarketChangePercent ?? null;
+  const gbp = freshQuote(gbpQ)?.regularMarketPrice ?? null;
+  const gbpChg1d = freshQuote(gbpQ)?.regularMarketChangePercent ?? null;
+
+  const out = [];
+  if (eur != null) {
+    const rate = eur * egp;
+    out.push({
+      id: "EUR/EGP",
+      label: "يورو / جنيه",
+      name: "Euro",
+      rate,
+      change1dPct: egpChg1d != null && eurChg1d != null ? egpChg1d + eurChg1d : null,
+      change1mPct: null,
+      change6mPct: null,
+      series: egpSeries.map((p) => ({ date: p.date, close: p.close * eur })),
+    });
+  }
+  if (gbp != null) {
+    const rate = gbp * egp;
+    out.push({
+      id: "GBP/EGP",
+      label: "استرليني / جنيه",
+      name: "British Pound",
+      rate,
+      change1dPct: egpChg1d != null && gbpChg1d != null ? egpChg1d + gbpChg1d : null,
+      change1mPct: null,
+      change6mPct: null,
+      series: egpSeries.map((p) => ({ date: p.date, close: p.close * gbp })),
+    });
+  }
+  out.push({
+    id: "SAR/EGP",
+    label: "ريال / جنيه",
+    name: "Saudi Riyal",
+    rate: egp / 3.75,
+    change1dPct: egpChg1d,
+    change1mPct: pctChange(egpSeries, 21),
+    change6mPct: pctChange(egpSeries, 126),
+    series: egpSeries.map((p) => ({ date: p.date, close: p.close / 3.75 })),
+  });
+  out.push({
+    id: "AED/EGP",
+    label: "درهم / جنيه",
+    name: "UAE Dirham",
+    rate: egp / 3.6725,
+    change1dPct: egpChg1d,
+    change1mPct: pctChange(egpSeries, 21),
+    change6mPct: pctChange(egpSeries, 126),
+    series: egpSeries.map((p) => ({ date: p.date, close: p.close / 3.6725 })),
+  });
+  return out;
+}
+
+// ── Global commodities (silver, Brent, WTI) ─────────────────────────────────
+export async function getCommodities() {
+  const results = await Promise.all(
+    COMMODITIES.map(async (c) => {
+      const [q, series, ohlcSeries] = await Promise.all([
+        quote(c.symbol),
+        closes(c.symbol, 260),
+        ohlc(c.symbol, 260),
+      ]);
+      const qq = freshQuote(q);
+      const price = qq?.regularMarketPrice ?? (series.length ? series[series.length - 1].close : null);
+      return {
+        symbol: c.symbol,
+        name: c.name,
+        ar: c.ar,
+        unit: c.unit,
+        color: c.color,
+        price,
+        change1dPct: qq?.regularMarketChangePercent ?? pctChange(series, 1),
+        change1mPct: pctChange(series, 21),
+        change6mPct: pctChange(series, 126),
+        ohlc: ohlcSeries.slice(-260),
+      };
+    })
+  );
+  return results;
+}
+
 // ── EGX30 index (live quote + basket-proxy history) ─────────────────────────
 export async function getIndexData() {
   const [qRaw, basket] = await Promise.all([quote(EGX30_INDEX.symbol), getBasketHistory(365)]);
@@ -443,7 +542,7 @@ export async function warmMarketCache() {
     // non-fatal — cache will fill from live fetches
   }
   // Fire-and-forget refresh of the headline datasets.
-  Promise.allSettled([getGoldData(), getFxData(), getIndexData(), getEgxMarket(), getInflation()])
+  Promise.allSettled([getGoldData(), getFxData(), getFxCrosses(), getCommodities(), getIndexData(), getEgxMarket(), getInflation()])
     .then((res) => {
       const ok = res.filter((r) => r.status === "fulfilled").length;
       console.log(`[market] background warmup complete (${ok}/${res.length} sources)`);

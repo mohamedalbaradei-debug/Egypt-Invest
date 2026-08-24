@@ -60,7 +60,7 @@ export function Header() {
 
         <div className="flex items-center gap-2">
           {user?.tier === "premium" && (
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-gold-400/20 to-gold-500/10 border border-gold-500/40 text-[10px] font-bold tracking-wider text-gold-300">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-gold-400/20 to-gold-500/10 border border-gold-500/40 text-[10px] font-bold tracking-wider text-gold-300">
               ★ PREMIUM
             </span>
           )}

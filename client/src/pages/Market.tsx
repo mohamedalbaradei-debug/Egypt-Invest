@@ -81,17 +81,27 @@ export default function Market() {
         <p className="text-sm text-slate-400 mb-4">Egyptian stock market indices — quote-only on Yahoo</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {(data.indices ?? []).map((idx) => (
-            <Card key={idx.symbol}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <div className="font-mono font-bold text-sky-300">{idx.symbol}</div>
-                  <div className="text-xs text-slate-400 mt-1">{idx.name}</div>
+            <Link key={idx.symbol} href={`/analyze?t=${encodeURIComponent(idx.symbol)}`} className="block hover:opacity-90 transition-opacity">
+              <Card>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="font-mono font-bold text-sky-300">{idx.symbol}</div>
+                    <div className="text-xs text-slate-400 mt-1">{idx.name}</div>
+                  </div>
+                  <ChangeChip value={idx.changePct} />
                 </div>
-                <ChangeChip value={idx.changePct} />
-              </div>
-              <div className="font-mono text-xl font-bold text-slate-100">{fmtNum(idx.level, 0)}</div>
-              <div className="text-[10px] text-slate-500 font-mono mt-1">{idx.currency}</div>
-            </Card>
+                <div className="font-mono text-xl font-bold text-slate-100">
+                  {idx.level != null ? fmtNum(idx.level, 0) : "n/a"}
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono mt-1">
+                  {idx.level != null
+                    ? idx.currency
+                    : lang === "ar"
+                      ? "بديل — غير متاح مباشرة على ياهو"
+                      : "Proxy · not live on Yahoo"}
+                </div>
+              </Card>
+            </Link>
           ))}
         </div>
       </section>

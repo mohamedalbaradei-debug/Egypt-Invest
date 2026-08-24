@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "wouter";
-import { LayoutDashboard, BarChart3, Search as SearchIcon, Landmark, Languages, Newspaper, Wallet } from "lucide-react";
+import { LayoutDashboard, BarChart3, Search as SearchIcon, Landmark, Languages, Newspaper, Wallet, CalendarDays } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
 
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/analyze", icon: SearchIcon, key: "nav_analyze" },
   { href: "/funds", icon: Landmark, key: "nav_funds" },
   { href: "/news", icon: Newspaper, key: "nav_news" },
+  { href: "/calendar", icon: CalendarDays, key: "nav_calendar" },
 ] as const;
 
 export function Header() {

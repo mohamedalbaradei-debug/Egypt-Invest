@@ -85,6 +85,7 @@ const dict = {
     funds_source: "المصدر",
     // News
     nav_news: "الأخبار",
+    nav_calendar: "التقويم",
     news_title: "أخبار السوق المصري",
     news_sub: "آخر الأخبار المؤثرة على الأسواق المصرية — أسهم، صناديق، عملة، ذهب واقتصاد كلي",
     news_empty: "لا توجد أخبار متاحة حاليًا",
@@ -269,6 +270,7 @@ const dict = {
     funds_source: "Source",
     // News
     nav_news: "News",
+    nav_calendar: "Calendar",
     news_title: "Egypt Market News",
     news_sub: "Latest news affecting Egyptian markets — stocks, ETFs, FX, gold and macro",
     news_empty: "No news available at the moment",

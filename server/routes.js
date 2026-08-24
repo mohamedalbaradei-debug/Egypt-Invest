@@ -430,4 +430,56 @@ function extract(xml, tag) {
   return m ? m[1].trim() : null;
 }
 
+// ── Macro calendar (curated, indicative 2026 schedule) ──────────────────────
+// Keyless: there is no free keyless economic-calendar feed for Egypt, so we
+// maintain the high-impact dates that move Egyptian equities, the pound, gold
+// and EM flows. Dates are indicative — always confirm with the source.
+function firstFriday(year, monthIdx) {
+  const d = new Date(Date.UTC(year, monthIdx, 1));
+  const offset = (5 - d.getUTCDay() + 7) % 7; // days until first Friday
+  d.setUTCDate(1 + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+const CBE_MPC_2026 = [
+  "2026-01-22", "2026-02-19", "2026-03-26", "2026-04-23", "2026-05-21",
+  "2026-06-25", "2026-07-23", "2026-08-20", "2026-09-24", "2026-10-22",
+  "2026-11-19", "2026-12-17",
+];
+const FED_FOMC_2026 = [
+  "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-10", "2026-07-29",
+  "2026-09-16", "2026-10-28", "2026-12-16",
+];
+const OPEC_2026 = ["2026-01-14", "2026-03-19", "2026-05-28", "2026-07-30", "2026-09-17", "2026-11-30"];
+
+function buildMacroEvents() {
+  const events = [];
+  const push = (date, category, impact, en, ar) =>
+    events.push({ date, category, impact, title: { en, ar } });
+
+  for (const d of CBE_MPC_2026) push(d, "egypt-rates", "High",
+    "CBE Monetary Policy Committee meeting", "اجتماع لجنة السياسة النقدية بالبنك المركزي");
+  for (const d of FED_FOMC_2026) push(d, "us-fed", "High",
+    "US Federal Reserve FOMC decision", "قرار الاحتياطي الفيدرالي الأمريكي (FOMC)");
+  for (const d of OPEC_2026) push(d, "oil-opec", "Medium",
+    "OPEC+ ministerial / JMMC meeting", "اجتماع أوبك+ الوزاري");
+  for (let m = 0; m < 12; m++) {
+    const ym = `2026-${String(m + 1).padStart(2, "0")}`;
+    push(`${ym}-10`, "egypt-cpi", "Medium",
+      "Egypt CPI inflation release", "إعلان التضخم المصري (CPI)");
+    push(`${ym}-13`, "us-cpi", "Medium",
+      "US CPI inflation release", "إعلان التضخم الأمريكي (CPI)");
+    push(firstFriday(2026, m), "us-jobs", "Medium",
+      "US jobs report (non-farm payrolls)", "تقرير الوظائف الأمريكي");
+  }
+  events.sort((a, b) => a.date.localeCompare(b.date));
+  return events;
+}
+
+const MACRO_EVENTS = buildMacroEvents();
+
+router.get("/calendar", (_req, res) => {
+  res.json({ events: MACRO_EVENTS, note: "Indicative 2026 schedule — confirm with the official source." });
+});
+
 export default router;

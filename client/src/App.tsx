@@ -8,6 +8,7 @@ import Market from "@/pages/Market";
 import Analyze from "@/pages/Analyze";
 import Funds from "@/pages/Funds";
 import News from "@/pages/News";
+import Calendar from "@/pages/Calendar";
 import Portfolio from "@/pages/Portfolio";
 
 function AnalyticsBeacon() {
@@ -43,6 +44,7 @@ function AppInner() {
           <Route path="/analyze" component={Analyze} />
           <Route path="/funds" component={Funds} />
           <Route path="/news" component={News} />
+        <Route path="/calendar" component={Calendar} />
           <Route path="/portfolio" component={Portfolio} />
         </Router>
       </main>

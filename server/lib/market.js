@@ -10,32 +10,50 @@ const OZ_TO_GRAM = 31.1034768;
 // site: on a cold cache we fall back to the most recent successful snapshot
 // instead of returning nothing while Yahoo re-warms.
 const cache = new Map();
-async function cached(key, ttlMs, fn, valid = (v) => v != null) {
+const refreshing = new Map();
+
+// Background refresh (deduped) — updates the in-memory + DB caches without
+// ever blocking a user request.
+async function doRefresh(key, fn, valid) {
+  let p = refreshing.get(key);
+  if (p) return p;
+  p = (async () => {
+    try {
+      const v = await fn();
+      if (valid(v)) {
+        cache.set(key, { t: Date.now(), v });
+        db.setCache(key, v).catch(() => {});
+      }
+    } catch {
+      /* keep serving last-good */
+    }
+  })();
+  refreshing.set(key, p);
+  try {
+    await p;
+  } finally {
+    refreshing.delete(key);
+  }
+}
+
+// Stale-while-revalidate: always serve the last-good value instantly (from the
+// DB cache, which survives restarts) and refresh in the background. A live
+// fetch only ever blocks when there is genuinely no cached snapshot at all.
+export async function cached(key, ttlMs, fn, valid = (v) => v != null) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t < ttlMs) return hit.v;
-  let v = null;
-  try {
-    v = await fn();
-  } catch {
-    v = null;
-  }
-  if (valid(v)) {
-    cache.set(key, { t: Date.now(), v });
-    db.setCache(key, v).catch(() => {});
-    return v;
-  }
-  // Upstream failed — serve the slightly-stale in-memory value if we have it,
-  // else the last-good value from the DB (survives restarts), else the null.
-  if (hit) {
-    cache.set(key, hit); // keep it warm a bit longer
-    return hit.v;
-  }
+
   const lastGood = await db.getCache(key).catch(() => null);
   if (lastGood != null) {
     cache.set(key, { t: Date.now(), v: lastGood });
+    doRefresh(key, fn, valid); // fire-and-forget
     return lastGood;
   }
-  return v;
+
+  // Nothing cached yet — fetch live, deduped across concurrent callers.
+  await doRefresh(key, fn, valid);
+  const fresh = cache.get(key);
+  return fresh ? fresh.v : null;
 }
 const TTL = 5 * 60 * 1000;
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { yahooFinance } from "./lib/yahoo.js";
-import { getGoldData, getFxData, getIndexData, getEgxMarket, getInflation } from "./lib/market.js";
+import { getGoldData, getFxData, getIndexData, getEgxMarket, getInflation, cached } from "./lib/market.js";
 import { analyzeTicker } from "./lib/analysis.js";
 import { buildDecision, buildRegime } from "./lib/decision.js";
 import { EGYPT_FUNDS, moneyMarketYield } from "./data/funds.js";
@@ -119,7 +119,7 @@ router.get("/funds", async (_req, res) => {
 
 // Egyptian market news from multiple sources.
 router.get("/news", async (_req, res) => {
-  const news = await fetchEgyptNews();
+  const news = await cached("news", 5 * 60 * 1000, fetchEgyptNews);
   res.json({ news, updatedAt: new Date().toISOString() });
 });
 

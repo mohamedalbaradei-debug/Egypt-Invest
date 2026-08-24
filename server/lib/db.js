@@ -36,6 +36,7 @@ function emptyDb() {
     snapshots: [],
     goals: [],
     pageviews: {}, // { "YYYY-MM-DD": { "/path": count } }
+    dataCache: {},
     seq: 1,
   };
 }
@@ -149,6 +150,14 @@ async function pgInit() {
     UPDATE fx_alerts SET asset='USDEGP' WHERE asset IS NULL;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free';
     ALTER TABLE telegram_chats ADD COLUMN IF NOT EXISTS digest_enabled BOOLEAN NOT NULL DEFAULT true;`);
+  // Last-good market snapshots so the site never goes blank after a deploy
+  // (the in-memory cache is wiped on restart; this survives restarts).
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS data_cache (
+      key TEXT PRIMARY KEY,
+      value_json JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );`);
 }
 
 const uid = () => `u_${crypto.randomUUID()}`;
@@ -583,6 +592,37 @@ export const db = {
     return Object.entries(agg)
       .map(([ppath, total]) => ({ ppath, total }))
       .sort((a, b) => b.total - a.total);
+  },
+
+  // Market data cache (survives restarts) ─────────────────────────────────
+  async getCache(key) {
+    if (usePg) {
+      const r = await pgPool.query("SELECT value_json FROM data_cache WHERE key=$1", [key]);
+      return r.rows[0]?.value_json ?? null;
+    }
+    return jsonDb.dataCache?.[key] ?? null;
+  },
+  async getAllCache() {
+    if (usePg) {
+      const r = await pgPool.query("SELECT key, value_json FROM data_cache");
+      const out = {};
+      for (const row of r.rows) out[row.key] = row.value_json;
+      return out;
+    }
+    return { ...(jsonDb.dataCache || {}) };
+  },
+  async setCache(key, value) {
+    if (usePg) {
+      await pgPool.query(
+        `INSERT INTO data_cache (key, value_json, updated_at) VALUES ($1, $2, now())
+         ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()`,
+        [key, JSON.stringify(value)],
+      );
+      return;
+    }
+    jsonDb.dataCache = jsonDb.dataCache || {};
+    jsonDb.dataCache[key] = value;
+    await jsonSaveSoon();
   },
 };
 

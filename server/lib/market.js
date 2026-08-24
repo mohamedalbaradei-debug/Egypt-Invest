@@ -1,16 +1,40 @@
-import { yahooFinance, chartSafe } from "./yahoo.js";
+import { yahooFinance, chartSafe, quoteSafe } from "./yahoo.js";
 import { EGX_STOCKS, EGX_ETFS, EGX30_INDEX, EGX_INDICES, GOLD_SYMBOL, FX_SYMBOL } from "../data/egx.js";
 import { WB_CPI_INDICATOR } from "../data/econ.js";
+import { db } from "./db.js";
 
 const OZ_TO_GRAM = 31.1034768;
 
 // ── Tiny TTL cache so auto-refreshing clients don't hammer Yahoo ────────────
+// Persisted to the DB (last-good value) so a deploy/restart never blanks the
+// site: on a cold cache we fall back to the most recent successful snapshot
+// instead of returning nothing while Yahoo re-warms.
 const cache = new Map();
-async function cached(key, ttlMs, fn) {
+async function cached(key, ttlMs, fn, valid = (v) => v != null) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t < ttlMs) return hit.v;
-  const v = await fn();
-  cache.set(key, { t: Date.now(), v });
+  let v = null;
+  try {
+    v = await fn();
+  } catch {
+    v = null;
+  }
+  if (valid(v)) {
+    cache.set(key, { t: Date.now(), v });
+    db.setCache(key, v).catch(() => {});
+    return v;
+  }
+  // Upstream failed — serve the slightly-stale in-memory value if we have it,
+  // else the last-good value from the DB (survives restarts), else the null.
+  if (hit) {
+    cache.set(key, hit); // keep it warm a bit longer
+    return hit.v;
+  }
+  const lastGood = await db.getCache(key).catch(() => null);
+  if (lastGood != null) {
+    cache.set(key, { t: Date.now(), v: lastGood });
+    return lastGood;
+  }
   return v;
 }
 const TTL = 5 * 60 * 1000;
@@ -27,7 +51,7 @@ async function quote(symbol) {
   return cached(`q:${symbol}`, TTL, async () => {
     let q = null;
     try {
-      const [raw] = await yahooFinance.quote([symbol]);
+      const [raw] = await quoteSafe([symbol]);
       q = raw ?? null;
     } catch {
       q = null;
@@ -378,4 +402,26 @@ export async function getInflation() {
   } catch {
     return { inflationPct: null, year: null, source: "World Bank", error: "unavailable" };
   }
+}
+/**
+ * Warm the in-memory cache from the persisted last-good snapshot so the very
+ * first request after a deploy/restart returns data immediately instead of
+ * waiting for Yahoo to re-warm (which can fail from datacenter IPs). Also
+ * kicks off a background refresh of the headline datasets.
+ */
+export async function warmMarketCache() {
+  try {
+    const all = await db.getAllCache();
+    for (const [k, v] of Object.entries(all)) cache.set(k, { t: Date.now(), v });
+    if (Object.keys(all).length > 0) console.log(`[market] warmed ${Object.keys(all).length} cached snapshots from DB`);
+  } catch (err) {
+    // non-fatal — cache will fill from live fetches
+  }
+  // Fire-and-forget refresh of the headline datasets.
+  Promise.allSettled([getGoldData(), getFxData(), getIndexData(), getEgxMarket(), getInflation()])
+    .then((res) => {
+      const ok = res.filter((r) => r.status === "fulfilled").length;
+      console.log(`[market] background warmup complete (${ok}/${res.length} sources)`);
+    })
+    .catch(() => {});
 }

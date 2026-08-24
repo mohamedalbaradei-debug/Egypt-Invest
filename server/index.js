@@ -7,7 +7,7 @@ import { initDb, db } from "./lib/db.js";
 import { attachUser } from "./lib/auth.js";
 import { startAlertLoop } from "./lib/notify.js";
 import { startDigestLoop } from "./lib/digest.js";
-import { getGoldData, getFxData } from "./lib/market.js";
+import { getGoldData, getFxData, warmMarketCache } from "./lib/market.js";
 import { valuePortfolio } from "./lib/portfolio.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -71,6 +71,12 @@ const PORT = process.env.PORT || 3000;
 
 initDb()
   .catch((err) => console.error("[db] init failed — running degraded:", err.message))
+  .then(async () => {
+    // Load last-good market snapshots from the DB into memory BEFORE we start
+    // listening, so the very first request after a deploy is served instantly
+    // instead of waiting for Yahoo to re-warm.
+    await warmMarketCache();
+  })
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`Egypt Invest listening on :${PORT} (storage: ${process.env.DATABASE_URL ? "postgres" : "json-file"})`);

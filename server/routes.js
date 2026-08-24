@@ -104,7 +104,20 @@ router.get("/overview", async (req, res) => {
 // Featured EGX market snapshot (stocks + ETFs + Indices).
 router.get("/market", async (_req, res) => {
   const market = await getEgxMarket();
-  res.json(market);
+  // The Market table only needs a short sparkline series — drop the heavy
+  // 260-point OHLC (6 fields/point) and trim series to ~60 points so the
+  // payload is ~100KB instead of ~8MB (was timing out / hanging the tab).
+  const lean = (arr) =>
+    (arr ?? []).map(({ ohlc, series, ...rest }) => ({
+      ...rest,
+      series: (series ?? []).slice(-60),
+    }));
+  res.json({
+    stocks: lean(market.stocks),
+    etfs: lean(market.etfs),
+    indices: (market.indices ?? []).map(({ ohlc, series, ...rest }) => rest),
+    updatedAt: market.updatedAt,
+  });
 });
 
 // Curated money-market & fixed-income funds.

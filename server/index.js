@@ -84,11 +84,6 @@ initDb()
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`Egypt Invest listening on :${PORT} (storage: ${process.env.DATABASE_URL ? "postgres" : "json-file"})`);
-      // Keep Render free instance awake + drive alert checks.
-      const selfUrl = process.env.SELF_URL;
-      if (selfUrl) {
-        setInterval(() => fetch(`${selfUrl}/api/healthz`).catch(() => {}), 14 * 60_000);
-      }
       // Daily net-worth snapshot for every user that has holdings.
       // Runs hourly; upserts today's row so the chart always ends at "now".
       async function snapshotAll() {
